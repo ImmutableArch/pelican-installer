@@ -14,6 +14,7 @@ from language_widget import LanguageWidget
 from timezone_widget import TimezoneWidget 
 from keyboard_layout_widget import KeyboardLayoutWidget
 from user_creation_widget import UserCreationWidget
+from installation_widget import InstallationWidget
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
@@ -86,6 +87,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.keyboard_layout_page = KeyboardLayoutWidget()
         self.disk_utility_page = DiskUtilityWidget()
         self.user_creation_page = UserCreationWidget()
+        self.installation_page = InstallationWidget()
 
         
         ######################
@@ -123,6 +125,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.main_stack.add_named(self.keyboard_layout_page, "keyboard")
         self.main_stack.add_named(self.disk_utility_page, "disk_utility")
         self.main_stack.add_named(self.user_creation_page, "usercreation")
+        self.main_stack.add_named(self.installation_page, "installation")
 
         # --- Connect signals ---
         self.welcome_page.btn_install.connect("clicked", self.on_install_clicked)
@@ -133,11 +136,26 @@ class MainWindow(Adw.ApplicationWindow):
         self.keyboard_layout_page.btn_back.connect("clicked", self.on_back_to_timezone_clicked)
         self.keyboard_layout_page.btn_proceed.connect("clicked", self.on_keyboard_layout_selected)
         self.disk_utility_page.btn_back.connect("clicked", self.on_back_to_keyboard_clicked)
-        self.disk_utility_page.btn_proceed.connect("clicked", self.on_disk_utility_continue_clicked)
+        #self.disk_utility_page.btn_proceed.connect("clicked", self.on_disk_utility_continue_clicked)
+        self.disk_utility_page.connect("continue-to-next-page", self.on_disk_utility_validated)
+        self.user_creation_page.btn_back.connect("clicked", self.on_back_to_user_creation_page_clicked)
+        self.user_creation_page.btn_proceed.connect("clicked", self.on_usercreation_continue_clicked)
 
 
-    def on_disk_utility_continue_clicked(self, button):
+
+    def on_usercreation_continue_clicked(self, button):
+        self.main_stack.set_visible_child_name("installation")
+        self.installation_page.start_installation()
+
+    def on_disk_utility_validated(self, widget):
+        """Called when disk utility widget signals it's ready to proceed"""
+        print("Disk utility validation completed - proceeding to user creation")
         self.main_stack.set_visible_child_name("usercreation")
+        # Hide the disk management buttons when leaving disk utility page
+        self.refresh_button.set_opacity(0)
+        self.refresh_button.set_sensitive(False)
+        self.disks_button.set_opacity(0)
+        self.disks_button.set_sensitive(False)
 
     def on_language_selected(self, button):
         self.main_stack.set_visible_child_name("timezone")
@@ -148,6 +166,15 @@ class MainWindow(Adw.ApplicationWindow):
     def on_keyboard_layout_selected(self, button):
         self.main_stack.set_visible_child_name("disk_utility")
 
+
+
+
+    def on_back_to_user_creation_page_clicked(self, button):
+        self.main_stack.set_visible_child_name("disk_utility")
+        self.refresh_button.set_opacity(1)
+        self.refresh_button.set_sensitive(True)
+        self.disks_button.set_opacity(1)
+        self.disks_button.set_sensitive(True)
 
     def on_back_to_keyboard_clicked(self, button):
         self.main_stack.set_visible_child_name("keyboard")

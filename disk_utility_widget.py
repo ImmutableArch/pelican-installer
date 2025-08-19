@@ -10,9 +10,14 @@ import os
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Gtk, Adw, Gio, Gdk, GLib
+from gi.repository import Gtk, Adw, Gio, Gdk, GLib, GObject
 
 class DiskUtilityWidget(Gtk.Box):
+
+    __gsignals__ = {
+        'continue-to-next-page': (GObject.SignalFlags.RUN_FIRST, None, ())
+    }
+
     def __init__(self, **kwargs):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, **kwargs)
         self.init_partition_config()
@@ -188,14 +193,9 @@ class DiskUtilityWidget(Gtk.Box):
 
     def _continue_with_installation(self):
         """Continue with the installation process"""
-        # Placeholder for now - you'll implement this later
+        self.emit("continue-to-next-page")
         print("Continuing with installation...")
         pass
-
-    def _on_auto_configure_response(self, dialog, response_id):
-        """Handle auto-configuration dialog response"""
-        if response_id == "auto":
-            self._auto_configure_disk()
 
 
     def _auto_configure_disk(self):
@@ -451,6 +451,8 @@ class DiskUtilityWidget(Gtk.Box):
                         f"fstab has been updated.")
             self.on_refresh_clicked(None)
             
+            GLib.idle_add(self._continue_with_installation)
+
         except Exception as e:
             progress_dialog.destroy()
             self._show_error_dialog("Error", f"Failed to auto-configure: {str(e)}")

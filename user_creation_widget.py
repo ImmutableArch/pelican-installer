@@ -339,7 +339,7 @@ class UserCreationWidget(Gtk.Box):
             return False, "Computer name is required"
         
         if not re.match(r'^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$', hostname):
-            return False, "Computer name must start and end with a letter or number, and contain only letters, numbers, and hyphens"
+            return False, "Must start and end with a letter or number, and contain only letters, numbers, and hyphens"
         
         if len(hostname) > 63:
             return False, "Computer name must be 63 characters or less"
@@ -497,14 +497,7 @@ class UserCreationWidget(Gtk.Box):
             
             print(f"Configuration files generated successfully in {config_dir}")
             
-            # Show success dialog with location
-            dialog = Adw.MessageDialog(
-                transient_for=self.get_root(),
-                heading="Success",
-                body=f"User configuration has been saved to:\n{config_dir}\n\nMake sure to copy these files to your installation target."
-            )
-            dialog.add_response("ok", "OK")
-            dialog.present()
+
             
             # Emit signal or callback for next step
             # self.emit('user-created', user_data)

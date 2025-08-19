@@ -144,17 +144,17 @@ class WelcomeWidget(Gtk.Box):
             border-radius: 25px;
             font-weight: bold;
             text-shadow: 0 1px 2px rgba(0,0,0,0.1);
-            box-shadow: 0 4px 12px rgba(74, 144, 226, 0.3);
+            box-shadow: 0 4px 12px rgba(201, 148, 218, 0.3);
         }
         
         .animated_button:hover {
             transform: translateY(-2px);
-            box-shadow: 0 8px 20px rgba(74, 144, 226, 0.4);
+            box-shadow: 0 8px 20px rgba(201, 148, 218, 0.3);
         }
         
         .animated_button:active {
             transform: translateY(1px);
-            box-shadow: 0 2px 8px rgba(74, 144, 226, 0.3);
+            box-shadow: 0 2px 8px rgba(201, 148, 218, 0.3);
         }
         
         /* Pulse animation for active elements */
