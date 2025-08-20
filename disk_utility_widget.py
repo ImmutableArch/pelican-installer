@@ -95,7 +95,12 @@ class DiskUtilityWidget(Gtk.Box):
         self.btn_format.connect("clicked", self.on_format_clicked)
         self.action_bar.pack_start(self.btn_format)
 
-        self.btn_filesystem = Gtk.Button(label="File system", margin_end=10, margin_bottom=10, margin_top=10)
+        self.btn_auto = Gtk.Button(label="Auto", margin_end=10, margin_bottom=10, margin_top=10)
+        self.btn_auto.set_visible(False)
+        self.btn_auto.connect("clicked", self.on_auto_clicked)
+        self.action_bar.pack_start(self.btn_auto)
+
+        self.btn_filesystem = Gtk.Button(label="Filesystem", margin_end=10, margin_bottom=10, margin_top=10)
         self.btn_filesystem.set_visible(False)
         self.btn_filesystem.connect("clicked", self.on_filesystem_clicked)
         self.action_bar.pack_start(self.btn_filesystem)
@@ -150,9 +155,9 @@ class DiskUtilityWidget(Gtk.Box):
             if self.selected_disk:
                 missing_items = []
                 if not has_boot_partition:
-                    missing_items.append("â€¢ No bootable partition found")
+                    missing_items.append("• No bootable partition found")
                 if not has_root_mountpoint:
-                    missing_items.append("â€¢ No root (/) mountpoint configured")
+                    missing_items.append("• No root (/) mountpoint configured")
                 
                 dialog = Adw.MessageDialog(
                     heading="Missing Required Configuration",
@@ -160,24 +165,24 @@ class DiskUtilityWidget(Gtk.Box):
                         f"{chr(10).join(missing_items)}\n\n"
                         f"Would you like to automatically configure the selected device?\n\n"
                         f"Auto-configure will:\n"
-                        f"â€¢ Remove the selected partition/disk\n"
-                        f"â€¢ Create a 1GB FAT32 boot partition at /boot\n"
-                        f"â€¢ Create an ext4 root partition at / with remaining space\n\n"
+                        f"• Remove the selected partition/disk\n"
+                        f"• Create a 1GB FAT32 boot partition at /boot\n"
+                        f"• Create an ext4 root partition at / with remaining space\n\n"
                         f"WARNING: All data on the selected device will be lost!",
                     transient_for=self.get_root()
                 )
                 dialog.add_response("back", "Go Back")
                 dialog.add_response("continue", "Continue Anyway")
                 dialog.add_response("auto", "Auto-Configure")
-                dialog.set_response_appearance("auto", Adw.ResponseAppearance.DESTRUCTIVE)
-                dialog.set_response_appearance("continue", Adw.ResponseAppearance.SUGGESTED)
+                dialog.set_response_appearance("auto", Adw.ResponseAppearance.SUGGESTED)
+                dialog.set_response_appearance("continue", Adw.ResponseAppearance.DESTRUCTIVE)
                 dialog.connect("response", self._on_auto_configure_response)
                 dialog.present()
             else:
                 self._show_error_dialog("Configuration Required", 
                                     "Please select a disk and configure:\n"
-                                    "â€¢ At least one bootable partition\n"
-                                    "â€¢ A root (/) mountpoint")
+                                    "• At least one bootable partition\n"
+                                    "• A root (/) mountpoint")
         else:
             print("Configuration valid, proceeding...")
             self._continue_with_installation()
@@ -223,7 +228,8 @@ class DiskUtilityWidget(Gtk.Box):
             base_disk = ''.join([c for c in self.selected_disk if not c.isdigit()])
             
             # If a whole disk is selected (type 0), use the format whole disk approach
-            if hasattr(self, 'type') and self.type == 0:
+            if hasattr(self, 'type') and (self.type == 0 or (self.type == 2 and "Free space on" in self.selected_disk)):
+                # If whole disk or if we're selecting free space but want to format whole disk
                 progress_dialog.destroy()
                 if boot_mode == "uefi":
                     progress_dialog = self._show_progress_dialog("Formatting Disk", "Wiping disk and creating UEFI partitions...")
@@ -306,9 +312,9 @@ class DiskUtilityWidget(Gtk.Box):
                     boot_end_mib = free_start_mib + boot_size_mib
                     
                     # Ensure we have enough space (need at least 100 MiB for root)
-                    if (free_end_mib - free_start_mib) < boot_size_mib + 100:
+                    if (free_end_mib - free_start_mib) < boot_size_mib + 15360:
                         available_mib = free_end_mib - free_start_mib
-                        raise Exception(f"Not enough free space. Available: {available_mib}MiB, Need: {boot_size_mib + 100}MiB")
+                        raise Exception(f"Not enough free space. Available: {available_mib}MiB, Need: {boot_size_mib + 15360}MiB")
                     
                     # Use MiB positions for perfect alignment
                     boot_start = f"{free_start_mib}MiB"
@@ -321,9 +327,9 @@ class DiskUtilityWidget(Gtk.Box):
                 else:
                     # Legacy: No separate boot partition needed, just root
                     # Ensure we have enough space (need at least 1000 MiB for root)
-                    if (free_end_mib - free_start_mib) < 1000:
+                    if (free_end_mib - free_start_mib) < 15360:
                         available_mib = free_end_mib - free_start_mib
-                        raise Exception(f"Not enough free space. Available: {available_mib}MiB, Need: 1000MiB")
+                        raise Exception(f"Not enough free space. Available: {available_mib}MiB, Need: 15360MiB")
                     
                     # Single root partition taking all space
                     root_start = f"{free_start_mib}MiB"
@@ -375,9 +381,9 @@ class DiskUtilityWidget(Gtk.Box):
                     boot_size_mib = 1024
                     boot_end_mib = free_start_mib + boot_size_mib
                     
-                    if (free_end_mib - free_start_mib) < boot_size_mib + 100:
+                    if (free_end_mib - free_start_mib) < boot_size_mib + 15360:
                         available_mib = free_end_mib - free_start_mib
-                        raise Exception(f"Not enough free space. Available: {available_mib}MiB, Need: {boot_size_mib + 100}MiB")
+                        raise Exception(f"Not enough free space. Available: {available_mib}MiB, Need: {boot_size_mib + 15360}MiB")
                     
                     boot_start = f"{free_start_mib}MiB"
                     boot_end_pos = f"{boot_end_mib}MiB"
@@ -388,9 +394,9 @@ class DiskUtilityWidget(Gtk.Box):
                     partition_type_root = "ext4"
                 else:
                     # Legacy: Just root partition
-                    if (free_end_mib - free_start_mib) < 1000:
+                    if (free_end_mib - free_start_mib) < 15360:
                         available_mib = free_end_mib - free_start_mib
-                        raise Exception(f"Not enough free space. Available: {available_mib}MiB, Need: 1000MiB")
+                        raise Exception(f"Not enough free space. Available: {available_mib}MiB, Need: 15360MiB")
                     
                     root_start = f"{free_start_mib}MiB"
                     root_end = f"{free_end_mib}MiB"
@@ -628,13 +634,13 @@ class DiskUtilityWidget(Gtk.Box):
         self._update_status_bar(f"/dev/{disk_name}", "drive-harddisk-symbolic")
         # Show buttons relevant for a whole disk
         self.btn_add.set_visible(True)
-        self.btn_format.set_visible(True)
+        self.btn_auto.set_visible(True)  
+        self.btn_format.set_visible(False)  
         # Hide buttons relevant for a partition
         self.btn_remove.set_visible(False)
         self.btn_bootable.set_visible(False)
         self.btn_filesystem.set_visible(False)
         self.btn_mountpoint.set_visible(False)
-
 
     def on_partition_selected(self, row, device_name):
         self.type=1
@@ -645,6 +651,7 @@ class DiskUtilityWidget(Gtk.Box):
         # Show buttons relevant for a partition
         self.btn_remove.set_visible(True)
         self.btn_format.set_visible(True)
+        self.btn_auto.set_visible(False)
         self.btn_bootable.set_visible(True)
         self.btn_filesystem.set_visible(True)
         self.btn_mountpoint.set_visible(True)
@@ -766,8 +773,9 @@ class DiskUtilityWidget(Gtk.Box):
             
             self._update_status_bar(f"Free space on /dev/{disk_name}", "list-add-symbolic")
             
-            # Only show Add button for free space
+            # Show Add and Auto buttons for free space
             self.btn_add.set_visible(True)
+            self.btn_auto.set_visible(True) 
             self.btn_format.set_visible(False)
             self.btn_remove.set_visible(False)
             self.btn_bootable.set_visible(False)
@@ -776,8 +784,8 @@ class DiskUtilityWidget(Gtk.Box):
 
     def _render_disk_list(self, disks):
         new_group = Adw.PreferencesGroup(
-            title="Available Storage Devices",
-            description="Click on a disk or partition to select it. Files on a selected device will be removed!"
+            title="Select a disk",
+            description="Click on a disk or partition to select it or modify it."
         )
         
         # Load the current partition configuration for mountpoint display
@@ -994,38 +1002,36 @@ class DiskUtilityWidget(Gtk.Box):
             self._execute_remove_partition()
 
     def on_format_clicked(self, button):
-        """Format selected disk or partition"""
+        """Format selected partition"""
         if not self.selected_disk:
-            self._show_error_dialog("No Selection", "Please select a disk or partition first.")
+            self._show_error_dialog("No Selection", "Please select a partition first.")
             return
         
-        # Check if it's a whole disk (type 0) - if so, format the whole disk automatically
-        if hasattr(self, 'type') and self.type == 0:
-            # Formatting whole disk - use preset configuration
-            self._execute_format_whole_disk()
-            return
-        
-        # For partitions, show filesystem selection
-        selection_type = "partition"
-        
-        print(f"Formatting {selection_type}: {self.selected_disk}")
-        
-        # Show filesystem selection dialog
-        dialog = Adw.MessageDialog(
-            heading=f"Format {selection_type.title()}",
-            body=f"Select filesystem type for {self.selected_disk}:\n\nWarning: All data will be lost!",
-            transient_for=self.get_root()
-        )
-        dialog.add_response("cancel", "Cancel")
-        dialog.add_response("ext4", "ext4")
-        dialog.add_response("btrfs", "Btrfs")
-        dialog.add_response("ntfs", "NTFS")
-        dialog.add_response("fat32", "FAT32")
-        dialog.add_response("exfat", "exFAT")
-        dialog.add_response("swap", "swap")
-        dialog.set_response_appearance("ext4", Adw.ResponseAppearance.SUGGESTED)
-        dialog.connect("response", self._on_format_response)
-        dialog.present()
+        # Only handle partitions now, not whole disks
+        if hasattr(self, 'type') and self.type == 1:
+            # For partitions, show filesystem selection
+            selection_type = "partition"
+            
+            print(f"Formatting {selection_type}: {self.selected_disk}")
+            
+            # Show filesystem selection dialog
+            dialog = Adw.MessageDialog(
+                heading=f"Format {selection_type.title()}",
+                body=f"Select filesystem type for {self.selected_disk}:\n\nWarning: All data will be lost!",
+                transient_for=self.get_root()
+            )
+            dialog.add_response("cancel", "Cancel")
+            dialog.add_response("ext4", "ext4")
+            dialog.add_response("btrfs", "Btrfs")
+            dialog.add_response("ntfs", "NTFS")
+            dialog.add_response("fat32", "FAT32")
+            dialog.add_response("exfat", "exFAT")
+            dialog.add_response("swap", "swap")
+            dialog.set_response_appearance("ext4", Adw.ResponseAppearance.SUGGESTED)
+            dialog.connect("response", self._on_format_response)
+            dialog.present()
+        else:
+            self._show_error_dialog("Invalid Selection", "Format is only available for partitions. Use Auto for whole disks or free space.")
 
     def _on_format_response(self, dialog, response_id):
         """Handle format dialog response"""
@@ -1033,6 +1039,25 @@ class DiskUtilityWidget(Gtk.Box):
             filesystem = response_id
             # Formatting partition
             self._execute_format(filesystem)
+
+    def on_auto_clicked(self, button):
+        """Handle Auto button click - automatically configure disk or free space"""
+        if not self.selected_disk:
+            self._show_error_dialog("No Selection", "Please select a disk or free space first.")
+            return
+        
+        # Check if it's a whole disk (type 0) or free space (type 2)
+        if hasattr(self, 'type'):
+            if self.type == 0:
+                # Whole disk selected - format entire disk
+                self._execute_format_whole_disk()
+            elif self.type == 2:
+                # Free space selected - auto configure in that space
+                self._auto_configure_disk()
+            else:
+                self._show_error_dialog("Invalid Selection", "Auto configuration is only available for whole disks or free space.")
+        else:
+            self._show_error_dialog("Invalid Selection", "Please select a disk or free space first.")
 
     def on_filesystem_clicked(self, button):
         """Change filesystem of selected partition"""

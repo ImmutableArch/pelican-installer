@@ -6,6 +6,7 @@ import subprocess
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Gtk, Adw, Gio, GLib, GObject
+from simple_localization_manager import get_localization_manager
 
 
 class TimezoneWidget(Gtk.Box):

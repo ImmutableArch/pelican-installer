@@ -298,18 +298,23 @@ class FinishWidget(Gtk.Box):
         self.btn_reboot.add_css_class("pulse-animation")
 
     def on_reboot_clicked(self, button):
-        """Handle reboot button click"""
-        # Show a confirmation dialog before rebooting
-        dialog = Adw.MessageDialog.new(
-            self.get_root(),
-            _("Reboot System"),
-            _("Are you sure you want to reboot now?")
-        )
-        dialog.add_response("cancel", _("Cancel"))
-        dialog.add_response("reboot", _("Reboot"))
-        dialog.set_response_appearance("reboot", Adw.ResponseAppearance.DESTRUCTIVE)
-        dialog.connect("response", self.on_reboot_response)
-        dialog.present()
+        try:
+            # Execute reboot command
+            subprocess.run(["sudo", "reboot", "-f"], check=True)
+        except subprocess.CalledProcessError as e:
+            # If sudo fails, try without sudo (may require proper permissions)
+            try:
+                subprocess.run(["reboot", "-f"], check=True)
+            except Exception as e:
+                print(f"Failed to reboot: {e}")
+                # Show error dialog
+                error_dialog = Adw.MessageDialog.new(
+                    self.get_root(),
+                    _("Reboot Failed"),
+                    _("Could not reboot the system. Please reboot manually.")
+                )
+                error_dialog.add_response("ok", _("OK"))
+                error_dialog.present()
 
     def on_reboot_response(self, dialog, response):
         """Handle the reboot confirmation dialog response"""

@@ -7,6 +7,7 @@ import gettext
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Gtk, Adw, Gdk
+from simple_localization_manager import get_localization_manager
 
 class LanguageWidget(Gtk.Box):
     def __init__(self, **kwargs):
@@ -429,12 +430,17 @@ main "$@"
             row.set_visible(search_text in row.search_term)
 
     def on_row_selected(self, listbox, row):
-        """Updated to create language script when a language is selected"""
+        """Updated to create language script and update UI language when a language is selected"""
         self.btn_proceed.set_sensitive(row is not None)
         
         # Create language script when a language is selected
         if row is not None:
             self.create_language_script()
+            
+            # ADD THIS LINE - Update UI language immediately
+            selected_locale = self.get_selected_language_code()
+            if selected_locale:
+                get_localization_manager().set_language(selected_locale)
 
     def get_script_path(self):
         """Get the path to the generated language script"""

@@ -352,7 +352,7 @@ class InstallationWidget(Gtk.Box):
             command=["sudo", "bash", "-c", "echo 'Files copied:' && find /tmp/linexin_installer/root -type f | wc -l"],
             description="Verifying that files were copied successfully",
             weight=0.5,
-            critical=False
+            critical=True
         ))
         
         steps.append(InstallationStep(
@@ -430,7 +430,7 @@ class InstallationWidget(Gtk.Box):
         
         steps.append(InstallationStep(
             label="Unmounting filesystems",
-            command=["sudo", "bash", "-c", "umount -R /tmp/linexin_installer/root && umount /tmp/linexin_installer/rootfs"],
+            command=["sudo", "bash", "-c", "umount -R /tmp/linexin_installer/root/boot && umount /tmp/linexin_installer/rootfs && umount /tmp/linexin_installer/rootfs"],
             description="Safely unmounting all filesystems",
             weight=0.5,
             critical=False
