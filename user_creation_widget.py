@@ -16,7 +16,7 @@ from gi.repository import Gtk, Adw, GLib
 class UserCreationWidget(Gtk.Box):
     """
     A GTK widget for creating user accounts during system installation.
-    Handles user creation, root account setup, and generates configuration files.
+    Generates a script to create users and configure the system during installation.
     """
     def __init__(self, config_output_dir=None, **kwargs):
         super().__init__(**kwargs)
@@ -439,7 +439,7 @@ class UserCreationWidget(Gtk.Box):
         """
         salt = self.generate_salt()
         
-        # Try using openssl command (standard on Arch Linux)
+        # Try using openssl command (standard on most Linux systems)
         try:
             result = subprocess.run(
                 ['openssl', 'passwd', '-6', '-salt', salt, password],
@@ -458,7 +458,19 @@ class UserCreationWidget(Gtk.Box):
         except ImportError:
             pass
         
-        # Fallback: use a simpler approach for testing
+        # Fallback: use mkpasswd if available
+        try:
+            result = subprocess.run(
+                ['mkpasswd', '-m', 'sha-512', '-S', salt, password],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            return result.stdout.strip()
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            pass
+        
+        # Last resort: use a simple SHA512 hash (less secure but better than plain text)
         print("Warning: Using fallback password hashing (less secure)")
         salted = salt + password
         hash_obj = hashlib.sha512(salted.encode())
@@ -469,7 +481,7 @@ class UserCreationWidget(Gtk.Box):
         if not self.validate_fields():
             return
         
-        # Collect user data
+        # Collect user data and hash passwords
         user_data = {
             'username': self.username_entry.get_text(),
             'fullname': self.fullname_entry.get_text(),
@@ -486,18 +498,10 @@ class UserCreationWidget(Gtk.Box):
         os.makedirs(config_dir, exist_ok=True)
         
         try:
-            # Generate user configuration file
-            self.generate_user_config(config_dir, user_data)
+            # Generate single combined configuration script
+            self.generate_configuration_script(config_dir, user_data)
             
-            # Generate hostname file
-            self.generate_hostname_file(config_dir, user_data['hostname'])
-            
-            # Generate installation script
-            self.generate_install_script(config_dir, user_data)
-            
-            print(f"Configuration files generated successfully in {config_dir}")
-            
-
+            print(f"Configuration script generated successfully in {config_dir}")
             
             # Emit signal or callback for next step
             # self.emit('user-created', user_data)
@@ -513,246 +517,211 @@ class UserCreationWidget(Gtk.Box):
             dialog.add_response("ok", "OK")
             dialog.present()
     
-    def generate_user_config(self, config_dir, user_data):
-        """Generate all system files needed for user configuration."""
+    def generate_configuration_script(self, config_dir, user_data):
+        """Generate a single script that handles all user and system configuration."""
+        script_file = os.path.join(config_dir, 'add_users.sh')
         
-        # Create etc directory structure
-        etc_dir = os.path.join(config_dir, 'etc')
-        os.makedirs(etc_dir, exist_ok=True)
-        os.makedirs(os.path.join(etc_dir, 'sudoers.d'), exist_ok=True)
-        
-        # Generate /etc/passwd entry
-        passwd_file = os.path.join(etc_dir, 'passwd')
-        passwd_entry = f"{user_data['username']}:x:1000:1000:{user_data['fullname']}:/home/{user_data['username']}:/bin/bash\n"
-        
-        # We'll append to existing system users (minimal set)
-        with open(passwd_file, 'w') as f:
-            # System users (minimal required set)
-            f.write("root:x:0:0:root:/root:/bin/bash\n")
-            f.write("bin:x:1:1:bin:/bin:/usr/bin/nologin\n")
-            f.write("daemon:x:2:2:daemon:/:/usr/bin/nologin\n")
-            f.write("mail:x:8:12:mail:/var/spool/mail:/usr/bin/nologin\n")
-            f.write("ftp:x:14:11:ftp:/srv/ftp:/usr/bin/nologin\n")
-            f.write("http:x:33:33:http:/srv/http:/usr/bin/nologin\n")
-            f.write("nobody:x:65534:65534:Nobody:/:/usr/bin/nologin\n")
-            f.write("dbus:x:81:81:dbus:/:/usr/bin/nologin\n")
-            f.write("systemd-journal:x:190:190:systemd-journal:/:/usr/bin/nologin\n")
-            f.write("systemd-network:x:192:192:systemd-network:/:/usr/bin/nologin\n")
-            f.write("systemd-resolve:x:193:193:systemd-resolve:/:/usr/bin/nologin\n")
-            f.write("systemd-timesync:x:194:194:systemd-timesync:/:/usr/bin/nologin\n")
-            f.write("systemd-coredump:x:195:195:systemd-coredump:/:/usr/bin/nologin\n")
-            f.write("uuidd:x:68:68:uuidd:/:/usr/bin/nologin\n")
-            # Add our user
-            f.write(passwd_entry)
-        
-        # Generate /etc/shadow entry
-        shadow_file = os.path.join(etc_dir, 'shadow')
-        shadow_entry = f"{user_data['username']}:{user_data['password_hash']}:19000:0:99999:7:::\n"
-        
-        with open(shadow_file, 'w') as f:
-            # System users shadows
-            if user_data['root_enabled']:
-                f.write(f"root:{user_data['root_password_hash']}:19000:0:99999:7:::\n")
-            else:
-                f.write("root:!:19000:0:99999:7:::\n")  # Locked root account
-            
-            f.write("bin:x:19000:0:99999:7:::\n")
-            f.write("daemon:x:19000:0:99999:7:::\n")
-            f.write("mail:x:19000:0:99999:7:::\n")
-            f.write("ftp:x:19000:0:99999:7:::\n")
-            f.write("http:x:19000:0:99999:7:::\n")
-            f.write("nobody:x:19000:0:99999:7:::\n")
-            f.write("dbus:x:19000:0:99999:7:::\n")
-            f.write("systemd-journal:x:19000:0:99999:7:::\n")
-            f.write("systemd-network:x:19000:0:99999:7:::\n")
-            f.write("systemd-resolve:x:19000:0:99999:7:::\n")
-            f.write("systemd-timesync:x:19000:0:99999:7:::\n")
-            f.write("systemd-coredump:x:19000:0:99999:7:::\n")
-            f.write("uuidd:x:19000:0:99999:7:::\n")
-            # Add our user
-            f.write(shadow_entry)
-        
-        # Set proper permissions for shadow file
-        os.chmod(shadow_file, 0o600)
-        
-        # Generate /etc/group entries
-        group_file = os.path.join(etc_dir, 'group')
-        with open(group_file, 'w') as f:
-            # System groups
-            f.write("root:x:0:root\n")
-            f.write("bin:x:1:root,bin,daemon\n")
-            f.write("daemon:x:2:root,bin,daemon\n")
-            f.write("sys:x:3:root,bin\n")
-            f.write("adm:x:4:root,daemon\n")
-            f.write("tty:x:5:\n")
-            f.write("disk:x:6:root\n")
-            f.write("lp:x:7:daemon\n")
-            f.write("mem:x:8:\n")
-            f.write("kmem:x:9:\n")
-            f.write("wheel:x:10:root," + user_data['username'] + "\n")
-            f.write("ftp:x:11:\n")
-            f.write("mail:x:12:\n")
-            f.write("uucp:x:14:\n")
-            f.write("log:x:19:root\n")
-            f.write("utmp:x:20:\n")
-            f.write("locate:x:21:\n")
-            f.write("rfkill:x:24:\n")
-            f.write("smmsp:x:25:\n")
-            f.write("proc:x:26:\n")
-            f.write("http:x:33:\n")
-            f.write("games:x:50:\n")
-            f.write("lock:x:54:\n")
-            f.write("uuidd:x:68:\n")
-            f.write("dbus:x:81:\n")
-            f.write("network:x:90:" + user_data['username'] + "\n")
-            f.write("video:x:91:" + user_data['username'] + "\n")
-            f.write("audio:x:92:" + user_data['username'] + "\n")
-            f.write("optical:x:93:\n")
-            f.write("floppy:x:94:\n")
-            f.write("storage:x:95:" + user_data['username'] + "\n")
-            f.write("scanner:x:96:\n")
-            f.write("input:x:97:\n")
-            f.write("power:x:98:\n")
-            f.write("nobody:x:65534:\n")
-            f.write("users:x:1000:" + user_data['username'] + "\n")
-            f.write("systemd-journal:x:190:\n")
-            f.write("systemd-network:x:192:\n")
-            f.write("systemd-resolve:x:193:\n")
-            f.write("systemd-timesync:x:194:\n")
-            f.write("systemd-coredump:x:195:\n")
-            # User's primary group
-            f.write(f"{user_data['username']}:x:1000:\n")
-        
-        # Generate /etc/gshadow
-        gshadow_file = os.path.join(etc_dir, 'gshadow')
-        with open(gshadow_file, 'w') as f:
-            f.write("root:::root\n")
-            f.write("wheel:::" + user_data['username'] + "\n")
-            f.write("audio:::" + user_data['username'] + "\n")
-            f.write("video:::" + user_data['username'] + "\n")
-            f.write("network:::" + user_data['username'] + "\n")
-            f.write("storage:::" + user_data['username'] + "\n")
-            f.write("users:::" + user_data['username'] + "\n")
-            f.write(f"{user_data['username']}:!::\n")
-        
-        os.chmod(gshadow_file, 0o600)
-        
-        # Generate sudoers file for wheel group
-        sudoers_file = os.path.join(etc_dir, 'sudoers.d', '10-installer')
-        with open(sudoers_file, 'w') as f:
-            f.write("# Created by Linexin Installer\n")
-            f.write("%wheel ALL=(ALL:ALL) ALL\n")
-        
-        os.chmod(sudoers_file, 0o440)
-        
-        print(f"User system files generated in {etc_dir}")
-    
-    def generate_hostname_file(self, config_dir, hostname):
-        """Generate hostname and hosts files."""
-        etc_dir = os.path.join(config_dir, 'etc')
-        os.makedirs(etc_dir, exist_ok=True)
-        
-        # Generate /etc/hostname
-        hostname_file = os.path.join(etc_dir, 'hostname')
-        with open(hostname_file, 'w') as f:
-            f.write(hostname + '\n')
-        
-        # Generate /etc/hosts
-        hosts_file = os.path.join(etc_dir, 'hosts')
-        with open(hosts_file, 'w') as f:
-            f.write("# Static table lookup for hostnames.\n")
-            f.write("# See hosts(5) for details.\n\n")
-            f.write("127.0.0.1\tlocalhost\n")
-            f.write(f"127.0.1.1\t{hostname}\n")
-            f.write("::1\t\tlocalhost\n")
-        
-        print(f"Hostname files saved to {etc_dir}")
-    
-    def generate_install_script(self, config_dir, user_data):
-        """Generate shell script for copying files to the installed system."""
-        script_file = os.path.join(config_dir, 'copy_to_rootfs.sh')
+        # Password hashes are already generated, no need to escape
+        user_password_hash = user_data['password_hash']
+        root_password_hash = user_data.get('root_password_hash', '') if user_data['root_enabled'] else ''
         
         script_content = f"""#!/bin/bash
-# Copy user configuration files to installed rootfs
-# Generated by Linexin Installer
+# System configuration script generated by Linexin Installer
+# This script should be run in the chrooted environment
+# Passwords are stored as SHA512 hashes for security
 
 set -e
 
-ROOTFS_DIR="${{1:-/mnt}}"
-CONFIG_DIR="$(dirname "$0")"
+echo "========================================="
+echo "Starting system configuration..."
+echo "========================================="
 
-if [ ! -d "$ROOTFS_DIR" ]; then
-    echo "Error: Root filesystem directory '$ROOTFS_DIR' does not exist!"
+# Configuration variables
+USERNAME='{user_data['username']}'
+FULLNAME='{user_data['fullname']}'
+USER_PASSWORD_HASH='{user_password_hash}'
+HOSTNAME='{user_data['hostname']}'
+ROOT_ENABLED={'true' if user_data['root_enabled'] else 'false'}
+ROOT_PASSWORD_HASH='{root_password_hash}'
+
+# Function to report errors
+error_exit() {{
+    echo "Error: $1" >&2
     exit 1
+}}
+
+# =========================================
+# HOSTNAME CONFIGURATION
+# =========================================
+echo ""
+echo "Configuring hostname..."
+echo "Setting hostname to: $HOSTNAME"
+
+# Set hostname
+hostnamectl set-hostname "$HOSTNAME" 2>/dev/null || echo "$HOSTNAME" > /etc/hostname
+
+# Update /etc/hosts
+echo "Updating /etc/hosts..."
+if ! grep -q "127.0.1.1" /etc/hosts; then
+    echo "127.0.1.1	$HOSTNAME" >> /etc/hosts
+else
+    sed -i "s/127.0.1.1.*/127.0.1.1	$HOSTNAME/" /etc/hosts
 fi
 
-echo "Copying user configuration files to rootfs..."
+# Ensure localhost entries exist
+if ! grep -q "127.0.0.1.*localhost" /etc/hosts; then
+    sed -i '1i 127.0.0.1	localhost' /etc/hosts
+fi
 
-# Backup existing files if they exist
-for file in passwd shadow group gshadow hostname hosts; do
-    if [ -f "$ROOTFS_DIR/etc/$file" ]; then
-        cp "$ROOTFS_DIR/etc/$file" "$ROOTFS_DIR/etc/$file.installer-backup"
-    fi
+if ! grep -q "::1.*localhost" /etc/hosts; then
+    echo "::1		localhost" >> /etc/hosts
+fi
+
+echo "✓ Hostname configuration completed"
+
+# =========================================
+# USER ACCOUNT CREATION
+# =========================================
+echo ""
+echo "Configuring user accounts..."
+
+# Create user account
+echo "Creating user account: $USERNAME"
+if id "$USERNAME" &>/dev/null; then
+    echo "User $USERNAME already exists, updating configuration..."
+    # Update groups if user exists
+    usermod -aG wheel,audio,video,network,storage,input,power "$USERNAME" || error_exit "Failed to update user groups"
+else
+    useradd -m -G wheel,audio,video,network,storage,input,power -s /bin/bash -c "$FULLNAME" "$USERNAME" || error_exit "Failed to create user"
+    echo "✓ User $USERNAME created successfully"
+fi
+
+# Set user password using the hash
+echo "Setting password for user $USERNAME"
+# Use usermod to set the password hash directly
+usermod -p "$USER_PASSWORD_HASH" "$USERNAME" || error_exit "Failed to set user password"
+echo "✓ Password set for $USERNAME"
+
+# Create user directories
+echo "Creating user directories..."
+for dir in Desktop Documents Downloads Music Pictures Videos; do
+    mkdir -p "/home/$USERNAME/$dir"
 done
+echo "✓ User directories created"
 
-# Copy configuration files
-cp -v "$CONFIG_DIR/etc/passwd" "$ROOTFS_DIR/etc/"
-cp -v "$CONFIG_DIR/etc/shadow" "$ROOTFS_DIR/etc/"
-cp -v "$CONFIG_DIR/etc/group" "$ROOTFS_DIR/etc/"
-cp -v "$CONFIG_DIR/etc/gshadow" "$ROOTFS_DIR/etc/"
-cp -v "$CONFIG_DIR/etc/hostname" "$ROOTFS_DIR/etc/"
-cp -v "$CONFIG_DIR/etc/hosts" "$ROOTFS_DIR/etc/"
-cp -v "$CONFIG_DIR/etc/sudoers.d/10-installer" "$ROOTFS_DIR/etc/sudoers.d/"
+# Set proper ownership
+chown -R "$USERNAME:$USERNAME" "/home/$USERNAME"
 
-# Set proper permissions
-chmod 644 "$ROOTFS_DIR/etc/passwd"
-chmod 000 "$ROOTFS_DIR/etc/shadow"
-chmod 644 "$ROOTFS_DIR/etc/group"
-chmod 000 "$ROOTFS_DIR/etc/gshadow"
-chmod 644 "$ROOTFS_DIR/etc/hostname"
-chmod 644 "$ROOTFS_DIR/etc/hosts"
-chmod 440 "$ROOTFS_DIR/etc/sudoers.d/10-installer"
+# Configure sudo for wheel group
+echo "Configuring sudo access..."
+if [ ! -f /etc/sudoers.d/10-installer ]; then
+    echo '%wheel ALL=(ALL:ALL) ALL' > /etc/sudoers.d/10-installer
+    chmod 440 /etc/sudoers.d/10-installer
+    echo "✓ Sudo configured for wheel group"
+fi
 
-# Create user home directory
-mkdir -p "$ROOTFS_DIR/home/{user_data['username']}"
-cp -r "$ROOTFS_DIR/etc/skel/." "$ROOTFS_DIR/home/{user_data['username']}/" 2>/dev/null || true
+# =========================================
+# ROOT ACCOUNT CONFIGURATION
+# =========================================
+echo ""
+if [ "$ROOT_ENABLED" = "true" ]; then
+    echo "Enabling root account..."
+    # Set root password using the hash
+    usermod -p "$ROOT_PASSWORD_HASH" root || error_exit "Failed to set root password"
+    # Ensure root account is unlocked
+    passwd -u root &>/dev/null || true
+    echo "✓ Root account enabled with password"
+else
+    echo "Disabling root account..."
+    # Lock root account
+    passwd -l root &>/dev/null || true
+    echo "✓ Root account disabled"
+fi
 
-# Set ownership (will need to be run after chroot or first boot)
-echo "Note: File ownership will be set on first boot"
+# =========================================
+# SHELL CONFIGURATION
+# =========================================
+echo ""
+echo "Setting up shell configuration..."
 
-# Create a first-boot script to fix permissions
-cat > "$ROOTFS_DIR/etc/systemd/system/first-boot-setup.service" << 'EOF'
-[Unit]
-Description=First Boot Setup
-ConditionPathExists=!/var/lib/first-boot-done
-After=multi-user.target
+# Set up user's shell configuration
+if [ -f /etc/skel/.bashrc ]; then
+    cp -f /etc/skel/.bashrc "/home/$USERNAME/.bashrc"
+fi
 
-[Service]
-Type=oneshot
-ExecStart=/usr/bin/bash -c "chown -R {user_data['username']}:{user_data['username']} /home/{user_data['username']} && touch /var/lib/first-boot-done"
-RemainAfterExit=yes
+if [ -f /etc/skel/.bash_profile ]; then
+    cp -f /etc/skel/.bash_profile "/home/$USERNAME/.bash_profile"
+fi
 
-[Install]
-WantedBy=multi-user.target
-EOF
+# If zsh is installed and skel has zshrc
+if command -v zsh &>/dev/null; then
+    if [ -f /etc/skel/.zshrc ]; then
+        cp -f /etc/skel/.zshrc "/home/$USERNAME/.zshrc"
+    fi
+    # Set zsh as default shell if available
+    chsh -s /bin/zsh "$USERNAME" &>/dev/null || true
+    echo "✓ Zsh set as default shell"
+fi
 
-# Enable the first-boot service
-ln -sf /etc/systemd/system/first-boot-setup.service "$ROOTFS_DIR/etc/systemd/system/multi-user.target.wants/"
+# Copy any other skel files
+if [ -d /etc/skel ]; then
+    echo "Copying skeleton files..."
+    find /etc/skel -mindepth 1 -maxdepth 1 \\( -name ".*" -o -type d \\) | while read -r item; do
+        basename_item=$(basename "$item")
+        if [ ! -e "/home/$USERNAME/$basename_item" ]; then
+            cp -r "$item" "/home/$USERNAME/"
+        fi
+    done
+fi
 
-echo "User configuration files copied successfully!"
-echo "The system is configured with:"
-echo "  Username: {user_data['username']}"
-echo "  Hostname: {user_data['hostname']}"
-echo "  Root account: {'Enabled' if user_data['root_enabled'] else 'Disabled'}"
+# Fix ownership again after copying files
+chown -R "$USERNAME:$USERNAME" "/home/$USERNAME"
+
+# Create .config directory if it doesn't exist
+mkdir -p "/home/$USERNAME/.config"
+chown "$USERNAME:$USERNAME" "/home/$USERNAME/.config"
+
+# Set up XDG user directories
+if command -v xdg-user-dirs-update &>/dev/null; then
+    su - "$USERNAME" -c "xdg-user-dirs-update" &>/dev/null || true
+    echo "✓ XDG user directories configured"
+fi
+
+# =========================================
+# SECURITY CLEANUP
+# =========================================
+echo ""
+echo "Performing security cleanup..."
+
+# Ensure shadow file has correct permissions
+chmod 000 /etc/shadow
+chmod 000 /etc/gshadow
+
+echo "✓ Security settings applied"
+
+# =========================================
+# SUMMARY
+# =========================================
+echo ""
+echo "========================================="
+echo "System configuration completed successfully!"
+echo "========================================="
+echo "  Hostname: $HOSTNAME"
+echo "  Username: $USERNAME"
+echo "  Full Name: $FULLNAME"
+echo "  Groups: wheel, audio, video, network, storage, input, power"
+echo "  Root account: $([ "$ROOT_ENABLED" = "true" ] && echo "Enabled" || echo "Disabled")"
+echo "========================================="
 """
         
         with open(script_file, 'w') as f:
             f.write(script_content)
         
-        # Make script executable
-        os.chmod(script_file, 0o755)
+        # Set restrictive permissions on the script since it contains password hashes
+        # Only root should be able to read/execute this script
+        os.chmod(script_file, 0o700)
         
-        print(f"Copy script saved to {script_file}")
+        print(f"Configuration script saved to {script_file} (with restricted permissions)")
     
     def set_config_output_dir(self, directory):
         """Set the output directory for configuration files."""

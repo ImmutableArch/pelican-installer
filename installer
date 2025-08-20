@@ -6,7 +6,8 @@ import threading
 import gettext
 import locale
 import os
-import sys 
+import sys
+import shutil
 
 from welcome_widget import WelcomeWidget
 from disk_utility_widget import DiskUtilityWidget
@@ -15,6 +16,7 @@ from timezone_widget import TimezoneWidget
 from keyboard_layout_widget import KeyboardLayoutWidget
 from user_creation_widget import UserCreationWidget
 from installation_widget import InstallationWidget
+from finish_widget import FinishWidget
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
@@ -88,6 +90,8 @@ class MainWindow(Adw.ApplicationWindow):
         self.disk_utility_page = DiskUtilityWidget()
         self.user_creation_page = UserCreationWidget()
         self.installation_page = InstallationWidget()
+        self.installation_page.connect('installation-complete', self.on_installation_finished)
+        self.finish_page = FinishWidget()
 
         
         ######################
@@ -126,6 +130,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.main_stack.add_named(self.disk_utility_page, "disk_utility")
         self.main_stack.add_named(self.user_creation_page, "usercreation")
         self.main_stack.add_named(self.installation_page, "installation")
+        self.main_stack.add_named(self.finish_page, "finish")
 
         # --- Connect signals ---
         self.welcome_page.btn_install.connect("clicked", self.on_install_clicked)
@@ -136,12 +141,18 @@ class MainWindow(Adw.ApplicationWindow):
         self.keyboard_layout_page.btn_back.connect("clicked", self.on_back_to_timezone_clicked)
         self.keyboard_layout_page.btn_proceed.connect("clicked", self.on_keyboard_layout_selected)
         self.disk_utility_page.btn_back.connect("clicked", self.on_back_to_keyboard_clicked)
-        #self.disk_utility_page.btn_proceed.connect("clicked", self.on_disk_utility_continue_clicked)
         self.disk_utility_page.connect("continue-to-next-page", self.on_disk_utility_validated)
         self.user_creation_page.btn_back.connect("clicked", self.on_back_to_user_creation_page_clicked)
         self.user_creation_page.btn_proceed.connect("clicked", self.on_usercreation_continue_clicked)
 
+    def on_installation_finished(self, widget):
+        """Called when installation completes successfully"""
+        print("Installation completed successfully - proceeding to finish page")
+        self.main_stack.set_visible_child_name("finish")
 
+    def get_app_directory(self):
+        """Get the directory where the installer script is located"""
+        return os.path.dirname(os.path.abspath(__file__))
 
     def on_usercreation_continue_clicked(self, button):
         self.main_stack.set_visible_child_name("installation")
@@ -200,7 +211,36 @@ class MainWindow(Adw.ApplicationWindow):
         if os.path.exists(config_dir):
             import shutil
             shutil.rmtree(config_dir)
-        self.main_stack.set_visible_child_name("language")
+        
+        """Create installer_config directory and copy required files"""
+        config_dir = "/tmp/installer_config"
+        app_dir = self.get_app_directory()
+        
+        try:
+            # Create the config directory
+            os.makedirs(config_dir, exist_ok=True)
+            print(f"Created config directory: {config_dir}")
+            
+            # Copy files if they exist
+            files_to_copy = ["bootloader.sh", "post-install.sh"]
+            for filename in files_to_copy:
+                source_path = os.path.join(app_dir, filename)
+                dest_path = os.path.join(config_dir, filename)
+                if os.path.exists(source_path):
+                    shutil.copy2(source_path, dest_path)
+                    os.chmod(dest_path, 0o755)
+                    print(f"Copied {filename} to {config_dir}")
+                else:
+                    print(f"Warning: {filename} not found in {app_dir}")
+            
+            # Always advance to next screen regardless of file copying results
+            self.main_stack.set_visible_child_name("language")
+            
+        except Exception as e:
+            print(f"Error setting up installer config: {e}")
+            # You might want to show an error dialog here instead of silently failing
+
+        
 
 
 

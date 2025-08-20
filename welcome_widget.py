@@ -46,12 +46,14 @@ class WelcomeWidget(Gtk.Box):
         
         self.current_lang_index = 0
         self.animation_running = False
+        self.initial_animation_done = False
+        self.animation_scheduled = False
 
         script_dir = os.path.dirname(os.path.abspath(__file__))
         image_path = os.path.join(script_dir, "images", "logo.png")
 
         self.set_orientation(Gtk.Orientation.VERTICAL)
-        self.set_spacing(0)  # We'll use margins for better control
+        self.set_spacing(0)
         self.set_valign(Gtk.Align.CENTER)
         self.set_halign(Gtk.Align.CENTER)
 
@@ -59,19 +61,22 @@ class WelcomeWidget(Gtk.Box):
         self.setup_custom_css()
 
         # Create main container with some breathing room
-        main_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=40)
-        main_container.set_margin_top(60)
-        main_container.set_margin_bottom(60)
-        main_container.set_margin_start(80)
-        main_container.set_margin_end(80)
-        main_container.set_valign(Gtk.Align.CENTER)
-        main_container.set_halign(Gtk.Align.CENTER)
+        self.main_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=40)
+        self.main_container.set_margin_top(60)
+        self.main_container.set_margin_bottom(60)
+        self.main_container.set_margin_start(80)
+        self.main_container.set_margin_end(80)
+        self.main_container.set_valign(Gtk.Align.CENTER)
+        self.main_container.set_halign(Gtk.Align.CENTER)
+        
+        # Add CSS class for animation
+        self.main_container.add_css_class("main_widget_container")
 
         # Welcome text container - fixed height to prevent layout shifts
         text_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=20)
         text_container.set_halign(Gtk.Align.CENTER)
         text_container.set_valign(Gtk.Align.CENTER)
-        text_container.set_size_request(-1, 80)  # Fixed height to prevent movement
+        text_container.set_size_request(-1, 80)
 
         # Animated welcome label
         self.welcome_label = Gtk.Label()
@@ -81,18 +86,18 @@ class WelcomeWidget(Gtk.Box):
         self.welcome_label.set_valign(Gtk.Align.CENTER)
         text_container.append(self.welcome_label)
 
-        main_container.append(text_container)
+        self.main_container.append(text_container)
 
-        # Logo with scaling animation - allow shrinking again
+        # Logo with scaling animation
         self.logo_container = Gtk.Box(halign=Gtk.Align.CENTER)
         self.welcome_image = Gtk.Picture.new_for_filename(image_path)
-        self.welcome_image.set_can_shrink(True)  # Allow shrinking again
+        self.welcome_image.set_can_shrink(True)
         self.welcome_image.set_halign(Gtk.Align.CENTER)
         self.welcome_image.set_valign(Gtk.Align.CENTER)
         self.welcome_image.add_css_class("logo_image")
-        self.welcome_image.set_size_request(300, 300)  # Preferred size
+        self.welcome_image.set_size_request(250, 250)  # Reduced from 300x300
         self.logo_container.append(self.welcome_image)
-        main_container.append(self.logo_container)
+        self.main_container.append(self.logo_container)
 
         # Button container with hover effects
         button_container = Gtk.Box(halign=Gtk.Align.CENTER, spacing=20)
@@ -111,20 +116,24 @@ class WelcomeWidget(Gtk.Box):
         self.btn_install.add_controller(hover_controller)
         
         button_container.append(self.btn_install)
-        main_container.append(button_container)
+        self.main_container.append(button_container)
 
-        self.append(main_container)
-
-        # Start entrance animations
-        GLib.timeout_add(100, self.start_entrance_animations)
+        self.append(self.main_container)
         
-        # Start language cycling after entrance (much slower)
-        GLib.timeout_add_seconds(8, self.start_language_cycling)
+        # Initially hide everything for the zoom animation
+        self.main_container.set_opacity(0)
+        
+        # Connect to the map signal to trigger animation when widget becomes visible
+        self.connect("map", self.on_widget_mapped)
 
     def setup_custom_css(self):
         """Setup enhanced CSS for modern look and animations"""
         css_provider = Gtk.CssProvider()
         css_data = """
+        .main_widget_container {
+            transition: all 1.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+        }
+        
         .welcome_text {
             text-shadow: 0 1px 2px rgba(0,0,0,0.1);
             transition: all 0.5s ease;
@@ -167,6 +176,22 @@ class WelcomeWidget(Gtk.Box):
         .pulse-animation {
             animation: pulse 2s ease-in-out infinite;
         }
+        
+        /* Zoom-in animation */
+        @keyframes zoomIn {
+            from {
+                transform: scale(1.5);
+                opacity: 0;
+            }
+            to {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+        
+        .zoom-in-animation {
+            animation: zoomIn 1.2s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+        }
         """
         css_provider.load_from_data(css_data.encode())
         Gtk.StyleContext.add_provider_for_display(
@@ -175,94 +200,112 @@ class WelcomeWidget(Gtk.Box):
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
 
-    def start_entrance_animations(self):
-        """Create staggered entrance animations for all elements"""
-        # Fade in welcome text
-        self.animate_element_entrance(self.welcome_label, 0)
+    def on_widget_mapped(self, widget):
+        """Called when widget is mapped (becomes visible)"""
+        if not self.animation_scheduled and not self.initial_animation_done:
+            self.animation_scheduled = True
+            # Small delay to ensure everything is rendered
+            GLib.timeout_add(200, self.start_entrance_animation)
+    
+    def start_entrance_animation(self):
+        """Start the smooth zoom-out entrance animation after widget is visible"""
+        if self.initial_animation_done:
+            return False
+            
+        self.initial_animation_done = True
+        self.animation_scheduled = False
         
-        # Scale in logo with delay
-        GLib.timeout_add(300, lambda: self.animate_logo_entrance())
+        # Create a smooth zoom-out effect with opacity fade
+        # Starting from scale 1.5 (appears closer) to scale 1.0 (normal size)
+        # Combined with opacity animation from 0 to 1
         
-        # Slide in button with delay
-        GLib.timeout_add(600, lambda: self.animate_button_entrance())
-        # Fade in progress dots with stagger - REMOVED
-        # for i, dot in enumerate(self.progress_dots):
-        #     GLib.timeout_add(1200 + (i * 50), lambda d=dot: self.animate_element_entrance(d, 0))
+        def animation_callback(value, data):
+            # Calculate scale: from 1.5 to 1.0
+            scale = 1.5 - (0.5 * value)
+            
+            # Apply both opacity and scale
+            self.main_container.set_opacity(value)
+            
+            # Use CSS transform for scaling - requires GTK 4.6+
+            # For older versions, we'll rely on opacity only
+            try:
+                # This is a conceptual approach - actual implementation may vary
+                # depending on GTK version and available methods
+                transform = Gdk.Transform.new()
+                transform = transform.scale(scale, scale)
+                # Note: Direct transform application may require custom widget or CSS
+            except:
+                # Fallback to just opacity if transform is not available
+                pass
+        
+        # Create the animation target
+        target = Adw.CallbackAnimationTarget.new(animation_callback, None)
+        
+        # Create the timed animation with smooth easing
+        animation = Adw.TimedAnimation.new(
+            self.main_container,
+            0.0,  # Start value (fully transparent)
+            1.0,  # End value (fully opaque)
+            1200, # Duration in milliseconds
+            target
+        )
+        
+        # Use a smooth easing function for natural motion
+        animation.set_easing(Adw.Easing.EASE_OUT_QUAD)  # Changed from CUBIC for smoother feel
+        
+        # Connect completion handler to start language cycling
+        animation.connect("done", self.on_entrance_animation_complete)
+        
+        # Play the animation
+        animation.play()
+        
+        # Alternative approach using multiple synchronized animations
+        self.animate_entrance_with_components()
         
         return False
 
-    def animate_element_entrance(self, element, start_opacity):
-        """Generic fade-in animation for elements"""
-        element.set_opacity(start_opacity)
-        target = Adw.CallbackAnimationTarget.new(
-            lambda value, data: element.set_opacity(value), None
+    def animate_entrance_with_components(self):
+        """Animate individual components with staggered timing for smoother effect"""
+        # Since we can't directly apply CSS transforms in GTK4 easily,
+        # we'll simulate the zoom effect using margin animations
+        
+        # Start with larger margins (simulating zoom) - reduced initial margin
+        initial_margin = 80  # Reduced from 120
+        self.main_container.set_margin_top(initial_margin + 60)
+        self.main_container.set_margin_bottom(initial_margin + 60)
+        self.main_container.set_margin_start(initial_margin + 80)
+        self.main_container.set_margin_end(initial_margin + 80)
+        
+        # Animate margins back to normal
+        def margin_callback(value, data):
+            current_margin = initial_margin * (1 - value)
+            self.main_container.set_margin_top(int(current_margin + 60))
+            self.main_container.set_margin_bottom(int(current_margin + 60))
+            self.main_container.set_margin_start(int(current_margin + 80))
+            self.main_container.set_margin_end(int(current_margin + 80))
+        
+        margin_target = Adw.CallbackAnimationTarget.new(margin_callback, None)
+        margin_animation = Adw.TimedAnimation.new(
+            self.main_container,
+            0.0,
+            1.0,
+            1200,
+            margin_target
         )
-        animation = Adw.TimedAnimation.new(
-            element, start_opacity, 1.0, 800, target
-        )
-        animation.play()
+        margin_animation.set_easing(Adw.Easing.EASE_OUT_EXPO)
+        margin_animation.play()
 
-    def animate_logo_entrance(self):
-        """Special scaling entrance for logo"""
-        # Start with scale 0.3 and animate to 1.0
-        original_size = self.welcome_image.get_size_request()
-        
-        def scale_callback(value, data):
-            # Apply CSS transform for scaling
-            scale_factor = 0.3 + (value * 0.7)  # From 0.3 to 1.0
-            self.welcome_image.set_opacity(value)
-            
-        target = Adw.CallbackAnimationTarget.new(scale_callback, None)
-        animation = Adw.TimedAnimation.new(
-            self.welcome_image, 0.0, 1.0, 1000, target
-        )
-        animation.set_easing(Adw.Easing.EASE_OUT_BACK)  # Bouncy effect
-        animation.play()
-
-    def animate_button_entrance(self):
-        """Slide-up animation for button"""
-        self.btn_install.set_opacity(0)
-        self.btn_install.set_margin_top(120)  # Start lower
-        
-        # Opacity animation
-        opacity_target = Adw.CallbackAnimationTarget.new(
-            lambda value, data: self.btn_install.set_opacity(value), None
-        )
-        opacity_animation = Adw.TimedAnimation.new(
-            self.btn_install, 0.0, 1.0, 600, opacity_target
-        )
-        
-        # Slide animation
-        slide_target = Adw.CallbackAnimationTarget.new(
-            lambda value, data: self.btn_install.set_margin_top(int(120 - (value * 40))), None
-        )
-        slide_animation = Adw.TimedAnimation.new(
-            self.btn_install, 0.0, 1.0, 600, slide_target
-        )
-        slide_animation.set_easing(Adw.Easing.EASE_OUT_CUBIC)
-        
-        opacity_animation.play()
-        slide_animation.play()
-
-    def update_progress_dots(self):
-        """Update progress dots with smooth transitions"""
-        for i, dot in enumerate(self.progress_dots):
-            if i == self.current_lang_index:
-                dot.add_css_class("active_dot")
-                # Add pulse effect
-                dot.add_css_class("pulse-animation")
-            else:
-                dot.remove_css_class("active_dot")
-                dot.remove_css_class("pulse-animation")
+    def on_entrance_animation_complete(self, animation):
+        """Called when the entrance animation completes"""
+        # Start language cycling after a delay
+        GLib.timeout_add_seconds(3, self.start_language_cycling)
 
     def on_button_hover_enter(self, controller, x, y):
         """Enhanced hover enter effect"""
-        # Scale up button slightly
         self.btn_install.add_css_class("pulse-animation")
 
     def on_button_hover_leave(self, controller):
         """Enhanced hover leave effect"""
-        # Remove pulse effect
         self.btn_install.remove_css_class("pulse-animation")
 
     def start_language_cycling(self):
@@ -277,15 +320,12 @@ class WelcomeWidget(Gtk.Box):
         if not self.animation_running:
             return False
             
-        # Start the fade out with scaling (slower timing)
         self.start_text_fade_out_enhanced()
         return True
 
     def _on_welcome_opacity_update(self, value, user_data):
-        """Update welcome label opacity with scaling effect"""
+        """Update welcome label opacity"""
         self.welcome_label.set_opacity(value)
-        # Add subtle scaling during fade
-        scale = 0.95 + (value * 0.05)  # Scale from 0.95 to 1.0
 
     def _on_button_opacity_update(self, value, user_data):
         """Update button opacity"""
@@ -293,21 +333,18 @@ class WelcomeWidget(Gtk.Box):
 
     def start_text_fade_out_enhanced(self):
         """Enhanced fade out with multiple elements"""
-        # Fade out welcome text
         welcome_target = Adw.CallbackAnimationTarget.new(self._on_welcome_opacity_update, None)
         welcome_animation = Adw.TimedAnimation.new(
             self.welcome_label, 1.0, 0.0, 400, welcome_target
         )
         welcome_animation.set_easing(Adw.Easing.EASE_IN_CUBIC)
         
-        # Fade out button
         button_target = Adw.CallbackAnimationTarget.new(self._on_button_opacity_update, None)
         button_animation = Adw.TimedAnimation.new(
             self.btn_install, 1.0, 0.0, 400, button_target
         )
         button_animation.set_easing(Adw.Easing.EASE_IN_CUBIC)
         
-        # Connect completion callback
         welcome_animation.connect("done", self.change_text_and_fade_in_enhanced)
         
         welcome_animation.play()
@@ -315,28 +352,20 @@ class WelcomeWidget(Gtk.Box):
 
     def change_text_and_fade_in_enhanced(self, animation):
         """Enhanced text change with smooth transitions"""
-        # Update language index
         self.current_lang_index = (self.current_lang_index + 1) % len(self.translations)
         
-        # Update welcome label text
         new_text = self.translations[self.current_lang_index]
         self.welcome_label.set_markup(f'<span size="x-large" weight="bold">{new_text}</span>')
 
-        # Update button text
         new_button_text = self.button_translations[self.current_lang_index]
         self.btn_install.set_label(new_button_text)
 
-        # Update progress dots - REMOVED FUNCTIONALITY
-        # self.update_progress_dots()
-
-        # Fade in welcome label with bounce
         welcome_target = Adw.CallbackAnimationTarget.new(self._on_welcome_opacity_update, None)
         welcome_fade_in = Adw.TimedAnimation.new(
             self.welcome_label, 0.0, 1.0, 600, welcome_target
         )
-        welcome_fade_in.set_easing(Adw.Easing.EASE_OUT_BACK)  # Bouncy entrance
+        welcome_fade_in.set_easing(Adw.Easing.EASE_OUT_BACK)
         
-        # Fade in button with slide
         button_target = Adw.CallbackAnimationTarget.new(self._on_button_opacity_update, None)
         button_fade_in = Adw.TimedAnimation.new(
             self.btn_install, 0.0, 1.0, 600, button_target
@@ -344,19 +373,12 @@ class WelcomeWidget(Gtk.Box):
         button_fade_in.set_easing(Adw.Easing.EASE_OUT_CUBIC)
         
         welcome_fade_in.play()
-        # Delay button fade in slightly for staggered effect
         GLib.timeout_add(150, lambda: button_fade_in.play())
 
-        # Schedule next cycle (much slower - 5 seconds between changes)
         GLib.timeout_add_seconds(5, self.start_text_fade_out_enhanced)
 
-    def add_floating_particles(self):
-        """Add subtle floating particle effect (optional enhancement)"""
-        # This could be implemented with custom drawing for extra flair
-        pass
-
     def stop_animations(self):
-        """Stop all running animations (useful for cleanup)"""
+        """Stop all running animations"""
         self.animation_running = False
 
 
@@ -371,9 +393,6 @@ class EnhancedWelcomeApp(Adw.Application):
         self.win.set_title("LineXin OS Installer")
         self.win.set_default_size(800, 600)
         
-        # Set up window background
-        self.setup_window_styling()
-        
         # Create and add welcome widget
         self.welcome_widget = WelcomeWidget()
         self.win.set_content(self.welcome_widget)
@@ -381,22 +400,8 @@ class EnhancedWelcomeApp(Adw.Application):
         # Add some window-level effects
         self.win.connect("close-request", self.on_window_close)
         
+        # The widget will handle its own animation via the "map" signal
         self.win.present()
-
-    def setup_window_styling(self):
-        """Setup window-level styling"""
-        css_provider = Gtk.CssProvider()
-        css_data = """
-        window {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        }
-        """
-        css_provider.load_from_data(css_data.encode())
-        Gtk.StyleContext.add_provider_for_display(
-            Gdk.Display.get_default(),
-            css_provider,
-            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
-        )
 
     def on_window_close(self, window):
         """Cleanup when window closes"""

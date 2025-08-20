@@ -199,14 +199,22 @@ class DiskUtilityWidget(Gtk.Box):
 
 
     def _auto_configure_disk(self):
-        """Automatically configure disk with boot and root partitions"""
+        """Automatically configure disk with boot and root partitions based on boot mode"""
         try:
             if not self.selected_disk:
                 self._show_error_dialog("Error", "No device selected")
                 return
             
-            progress_dialog = self._show_progress_dialog("Auto-Configuring", 
-                                                        "Setting up boot and root partitions...")
+            # Detect boot mode (UEFI or Legacy)
+            boot_mode = self._detect_boot_mode()
+            print(f"Detected boot mode: {boot_mode}")
+            
+            if boot_mode == "uefi":
+                progress_dialog = self._show_progress_dialog("Auto-Configuring", 
+                                                            "Setting up UEFI boot and root partitions...")
+            else:
+                progress_dialog = self._show_progress_dialog("Auto-Configuring", 
+                                                            "Setting up Legacy boot and root partitions...")
             
             # FIX: Clean up the disk path if it contains "Free space on"
             if "Free space on" in self.selected_disk:
@@ -217,8 +225,11 @@ class DiskUtilityWidget(Gtk.Box):
             # If a whole disk is selected (type 0), use the format whole disk approach
             if hasattr(self, 'type') and self.type == 0:
                 progress_dialog.destroy()
-                progress_dialog = self._show_progress_dialog("Formatting Disk", "Wiping disk and creating partitions...")
-                self._wipe_disk_sync(progress_dialog)
+                if boot_mode == "uefi":
+                    progress_dialog = self._show_progress_dialog("Formatting Disk", "Wiping disk and creating UEFI partitions...")
+                else:
+                    progress_dialog = self._show_progress_dialog("Formatting Disk", "Wiping disk and creating Legacy partitions...")
+                self._wipe_disk_sync(progress_dialog, boot_mode)
                 return
             
             # For partitions (type 1), get partition info and remove it first
@@ -268,14 +279,18 @@ class DiskUtilityWidget(Gtk.Box):
             process = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
             
             if "unrecognised disk label" in process.stderr.lower() or "unrecognized disk label" in process.stderr.lower():
-                cmd = ['sudo', 'parted', '-s', base_disk, 'mklabel', 'gpt']
+                if boot_mode == "uefi":
+                    cmd = ['sudo', 'parted', '-s', base_disk, 'mklabel', 'gpt']
+                else:
+                    cmd = ['sudo', 'parted', '-s', base_disk, 'mklabel', 'msdos']
                 process = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
                 if process.returncode != 0:
-                    raise Exception(f"Failed to create GPT table: {process.stderr}")
+                    partition_table_type = "GPT" if boot_mode == "uefi" else "MBR"
+                    raise Exception(f"Failed to create {partition_table_type} table: {process.stderr}")
                 import time
                 time.sleep(1)
             
-            # Use MiB-based positioning for better alignment
+            # Calculate partition positions based on boot mode
             if hasattr(self, 'type') and self.type == 2 and hasattr(self, 'selected_free_space'):
                 # Use the freed space boundaries
                 free_start_bytes = self.selected_free_space['start']
@@ -285,21 +300,40 @@ class DiskUtilityWidget(Gtk.Box):
                 free_start_mib = ((free_start_bytes + 1048575) // 1048576)  # Round up to next MiB
                 free_end_mib = (free_end_bytes // 1048576)  # Round down to MiB boundary
                 
-                # 1024 MiB boot partition (1 GiB)
-                boot_size_mib = 1024
-                boot_end_mib = free_start_mib + boot_size_mib
-                
-                # Ensure we have enough space (need at least 100 MiB for root)
-                if (free_end_mib - free_start_mib) < boot_size_mib + 100:
-                    available_mib = free_end_mib - free_start_mib
-                    raise Exception(f"Not enough free space. Available: {available_mib}MiB, Need: {boot_size_mib + 100}MiB")
-                
-                # Use MiB positions for perfect alignment
-                boot_start = f"{free_start_mib}MiB"
-                boot_end_pos = f"{boot_end_mib}MiB"
-                root_start = f"{boot_end_mib}MiB"
-                root_end = f"{free_end_mib}MiB"
-                
+                if boot_mode == "uefi":
+                    # UEFI: 1024 MiB boot partition (1 GiB)
+                    boot_size_mib = 1024
+                    boot_end_mib = free_start_mib + boot_size_mib
+                    
+                    # Ensure we have enough space (need at least 100 MiB for root)
+                    if (free_end_mib - free_start_mib) < boot_size_mib + 100:
+                        available_mib = free_end_mib - free_start_mib
+                        raise Exception(f"Not enough free space. Available: {available_mib}MiB, Need: {boot_size_mib + 100}MiB")
+                    
+                    # Use MiB positions for perfect alignment
+                    boot_start = f"{free_start_mib}MiB"
+                    boot_end_pos = f"{boot_end_mib}MiB"
+                    root_start = f"{boot_end_mib}MiB"
+                    root_end = f"{free_end_mib}MiB"
+                    
+                    partition_type_boot = "fat32"
+                    partition_type_root = "ext4"
+                else:
+                    # Legacy: No separate boot partition needed, just root
+                    # Ensure we have enough space (need at least 1000 MiB for root)
+                    if (free_end_mib - free_start_mib) < 1000:
+                        available_mib = free_end_mib - free_start_mib
+                        raise Exception(f"Not enough free space. Available: {available_mib}MiB, Need: 1000MiB")
+                    
+                    # Single root partition taking all space
+                    root_start = f"{free_start_mib}MiB"
+                    root_end = f"{free_end_mib}MiB"
+                    partition_type_root = "ext4"
+                    
+                    boot_start = None  # No separate boot partition
+                    boot_end_pos = None
+                    partition_type_boot = None
+                    
             else:
                 # Find the largest free space using byte units and convert to MiB with integer math
                 cmd = ['sudo', 'parted', base_disk, 'unit', 'B', 'print', 'free']
@@ -336,44 +370,77 @@ class DiskUtilityWidget(Gtk.Box):
                 free_start_mib = (free_start_bytes + mib_size - 1) // mib_size  # Round up
                 free_end_mib = free_end_bytes // mib_size  # Round down
                 
-                # 1024 MiB boot partition
-                boot_size_mib = 1024
-                boot_end_mib = free_start_mib + boot_size_mib
-                
-                if (free_end_mib - free_start_mib) < boot_size_mib + 100:
-                    available_mib = free_end_mib - free_start_mib
-                    raise Exception(f"Not enough free space. Available: {available_mib}MiB, Need: {boot_size_mib + 100}MiB")
-                
-                boot_start = f"{free_start_mib}MiB"
-                boot_end_pos = f"{boot_end_mib}MiB"
-                root_start = f"{boot_end_mib}MiB"
-                root_end = f"{free_end_mib}MiB"
+                if boot_mode == "uefi":
+                    # UEFI: 1024 MiB boot partition
+                    boot_size_mib = 1024
+                    boot_end_mib = free_start_mib + boot_size_mib
+                    
+                    if (free_end_mib - free_start_mib) < boot_size_mib + 100:
+                        available_mib = free_end_mib - free_start_mib
+                        raise Exception(f"Not enough free space. Available: {available_mib}MiB, Need: {boot_size_mib + 100}MiB")
+                    
+                    boot_start = f"{free_start_mib}MiB"
+                    boot_end_pos = f"{boot_end_mib}MiB"
+                    root_start = f"{boot_end_mib}MiB"
+                    root_end = f"{free_end_mib}MiB"
+                    
+                    partition_type_boot = "fat32"
+                    partition_type_root = "ext4"
+                else:
+                    # Legacy: Just root partition
+                    if (free_end_mib - free_start_mib) < 1000:
+                        available_mib = free_end_mib - free_start_mib
+                        raise Exception(f"Not enough free space. Available: {available_mib}MiB, Need: 1000MiB")
+                    
+                    root_start = f"{free_start_mib}MiB"
+                    root_end = f"{free_end_mib}MiB"
+                    partition_type_root = "ext4"
+                    
+                    boot_start = None
+                    boot_end_pos = None
+                    partition_type_boot = None
             
-            print(f"Creating partitions: boot {boot_start}-{boot_end_pos}, root {root_start}-{root_end}")
-            
-            # Create boot partition using byte positioning
-            cmd = ['sudo', 'parted', '-s', base_disk, 'mkpart', 'primary', 'fat32', 
-                boot_start, boot_end_pos]
-            process = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-            if process.returncode != 0:
-                # Try without filesystem type
-                cmd = ['sudo', 'parted', '-s', base_disk, 'mkpart', 'primary', 
+            # Create partitions based on boot mode
+            if boot_mode == "uefi":
+                print(f"Creating UEFI partitions: boot {boot_start}-{boot_end_pos}, root {root_start}-{root_end}")
+                
+                # Create boot partition using byte positioning
+                cmd = ['sudo', 'parted', '-s', base_disk, 'mkpart', 'primary', partition_type_boot, 
                     boot_start, boot_end_pos]
                 process = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
                 if process.returncode != 0:
-                    raise Exception(f"Failed to create boot partition: {process.stderr}")
-            
-            # Create root partition
-            cmd = ['sudo', 'parted', '-s', base_disk, 'mkpart', 'primary', 'ext4',
-                root_start, root_end]
-            process = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-            if process.returncode != 0:
-                # Try without filesystem type
-                cmd = ['sudo', 'parted', '-s', base_disk, 'mkpart', 'primary',
+                    # Try without filesystem type
+                    cmd = ['sudo', 'parted', '-s', base_disk, 'mkpart', 'primary', 
+                        boot_start, boot_end_pos]
+                    process = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                    if process.returncode != 0:
+                        raise Exception(f"Failed to create boot partition: {process.stderr}")
+                
+                # Create root partition
+                cmd = ['sudo', 'parted', '-s', base_disk, 'mkpart', 'primary', partition_type_root,
                     root_start, root_end]
                 process = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
                 if process.returncode != 0:
-                    raise Exception(f"Failed to create root partition: {process.stderr}")
+                    # Try without filesystem type
+                    cmd = ['sudo', 'parted', '-s', base_disk, 'mkpart', 'primary',
+                        root_start, root_end]
+                    process = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                    if process.returncode != 0:
+                        raise Exception(f"Failed to create root partition: {process.stderr}")
+            else:
+                print(f"Creating Legacy partition: root {root_start}-{root_end}")
+                
+                # Create single root partition for Legacy boot
+                cmd = ['sudo', 'parted', '-s', base_disk, 'mkpart', 'primary', partition_type_root,
+                    root_start, root_end]
+                process = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                if process.returncode != 0:
+                    # Try without filesystem type
+                    cmd = ['sudo', 'parted', '-s', base_disk, 'mkpart', 'primary',
+                        root_start, root_end]
+                    process = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                    if process.returncode != 0:
+                        raise Exception(f"Failed to create root partition: {process.stderr}")
             
             # Force kernel to re-read partition table
             cmd = ['sudo', 'partprobe', base_disk]
@@ -399,56 +466,92 @@ class DiskUtilityWidget(Gtk.Box):
             
             partition_nums.sort()
             
-            # Find the two newest partitions
-            if len(partition_nums) >= 2:
-                boot_partition = f"{base_disk}{partition_nums[-2]}"
-                root_partition = f"{base_disk}{partition_nums[-1]}"
+            if boot_mode == "uefi":
+                # Find the two newest partitions for UEFI
+                if len(partition_nums) >= 2:
+                    boot_partition = f"{base_disk}{partition_nums[-2]}"
+                    root_partition = f"{base_disk}{partition_nums[-1]}"
+                else:
+                    boot_partition = f"{base_disk}1"
+                    root_partition = f"{base_disk}2"
+                
+                # Set boot flag for UEFI ESP
+                boot_num = ''.join(filter(str.isdigit, boot_partition.split('/')[-1]))
+                cmd = ['sudo', 'parted', '-s', base_disk, 'set', boot_num, 'esp', 'on']
+                subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                
+                time.sleep(2)
+                
+                # Format partitions
+                cmd = ['sudo', 'mkfs.fat', '-F', '32', boot_partition]
+                process = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                if process.returncode != 0:
+                    raise Exception(f"Failed to format boot partition: {process.stderr}")
+                
+                cmd = ['sudo', 'mkfs.ext4', '-F', root_partition]
+                process = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                if process.returncode != 0:
+                    raise Exception(f"Failed to format root partition: {process.stderr}")
+                
+                # Update configuration
+                if not hasattr(self, 'partition_config'):
+                    self.partition_config = {}
+                
+                self.partition_config[boot_partition] = {
+                    'mountpoint': '/boot',
+                    'bootable': True
+                }
+                
+                self.partition_config[root_partition] = {
+                    'mountpoint': '/',
+                    'bootable': False
+                }
+                
+                success_message = (f"UEFI disk configured successfully!\n\n"
+                                f"Created partitions:\n"
+                                f"• {boot_partition}: 1 GiB FAT32 at /boot (ESP)\n"
+                                f"• {root_partition}: ext4 at /\n\n"
+                                f"fstab has been updated.")
             else:
-                boot_partition = f"{base_disk}1"
-                root_partition = f"{base_disk}2"
-            
-            # Set boot flag
-            boot_num = ''.join(filter(str.isdigit, boot_partition.split('/')[-1]))
-            cmd = ['sudo', 'parted', '-s', base_disk, 'set', boot_num, 'boot', 'on']
-            subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-            
-            time.sleep(2)
-            
-            # Format partitions
-            cmd = ['sudo', 'mkfs.fat', '-F', '32', boot_partition]
-            process = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            if process.returncode != 0:
-                raise Exception(f"Failed to format boot partition: {process.stderr}")
-            
-            cmd = ['sudo', 'mkfs.ext4', '-F', root_partition]
-            process = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-            if process.returncode != 0:
-                raise Exception(f"Failed to format root partition: {process.stderr}")
-            
-            # Update configuration
-            if not hasattr(self, 'partition_config'):
-                self.partition_config = {}
-            
-            self.partition_config[boot_partition] = {
-                'mountpoint': '/boot',
-                'bootable': True
-            }
-            
-            self.partition_config[root_partition] = {
-                'mountpoint': '/',
-                'bootable': False
-            }
+                # Find the newest partition for Legacy
+                if len(partition_nums) >= 1:
+                    root_partition = f"{base_disk}{partition_nums[-1]}"
+                else:
+                    root_partition = f"{base_disk}1"
+                
+                # Set boot flag for Legacy boot
+                root_num = ''.join(filter(str.isdigit, root_partition.split('/')[-1]))
+                cmd = ['sudo', 'parted', '-s', base_disk, 'set', root_num, 'boot', 'on']
+                subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                
+                time.sleep(2)
+                
+                # Format root partition
+                cmd = ['sudo', 'mkfs.ext4', '-F', root_partition]
+                process = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                if process.returncode != 0:
+                    raise Exception(f"Failed to format root partition: {process.stderr}")
+                
+                # Update configuration
+                if not hasattr(self, 'partition_config'):
+                    self.partition_config = {}
+                
+                self.partition_config[root_partition] = {
+                    'mountpoint': '/',
+                    'bootable': True
+                }
+                
+                success_message = (f"Legacy disk configured successfully!\n\n"
+                                f"Created partitions:\n"
+                                f"• {root_partition}: ext4 at / (bootable)\n\n"
+                                f"fstab has been updated.\n\n"
+                                f"Note: GRUB will be installed to the MBR of {base_disk}")
             
             self._save_partition_config()
             self._generate_and_apply_fstab()
             
             progress_dialog.destroy()
-            self._show_info_dialog("Success", 
-                        f"Disk configured successfully!\n\n"
-                        f"Created partitions:\n"
-                        f"• {boot_partition}: 1 GiB FAT32 at /boot (bootable)\n"
-                        f"• {root_partition}: ext4 at /\n\n"
-                        f"fstab has been updated.")
+            self._show_info_dialog("Success", success_message)
             self.on_refresh_clicked(None)
             
             GLib.idle_add(self._continue_with_installation)
@@ -456,6 +559,18 @@ class DiskUtilityWidget(Gtk.Box):
         except Exception as e:
             progress_dialog.destroy()
             self._show_error_dialog("Error", f"Failed to auto-configure: {str(e)}")
+
+    def _detect_boot_mode(self):
+        """Detect if the system is running in UEFI or Legacy mode"""
+        try:
+            # Check if /sys/firmware/efi exists
+            if os.path.exists('/sys/firmware/efi'):
+                return "uefi"
+            else:
+                return "legacy"
+        except Exception:
+            # Fallback: assume legacy if detection fails
+            return "legacy"
 
     def on_refresh_clicked(self, button):
         print("Refreshing disk list...")
@@ -717,7 +832,7 @@ class DiskUtilityWidget(Gtk.Box):
                     subtitle_parts = [f"Size: {self._format_size_human(part['size'])}"]
                     subtitle_parts.append(f"Mount: {configured_mountpoint}")
                     if is_bootable:
-                        subtitle_parts.append("EFI")
+                        subtitle_parts.append("Bootable")
                     
                     items.append({
                         'type': 'partition',
@@ -1048,7 +1163,7 @@ class DiskUtilityWidget(Gtk.Box):
         # Show boot flag dialog
         dialog = Adw.MessageDialog(
             heading="Boot Flag",
-            body=f"Toggle boot flag for {self.selected_disk}?\n\nThis will modify the partition to be visible in the UEFI's boot menu.",
+            body=f"Toggle boot flag for {self.selected_disk}?\n\nThis will modify the partition to be visible in the boot menu.",
             transient_for=self.get_root()
         )
         dialog.add_response("cancel", "Cancel")
@@ -1741,20 +1856,34 @@ class DiskUtilityWidget(Gtk.Box):
             self._show_error_dialog("Error", f"Failed to set boot flag: {str(e)}")
 
     def _execute_format_whole_disk(self):
-        """Format whole disk with GPT table and create boot + root partitions"""
+        """Format whole disk with appropriate partition table and partitions based on boot mode"""
         try:
+            # Detect boot mode first
+            boot_mode = self._detect_boot_mode()
+            
+            if boot_mode == "uefi":
+                dialog_body = (f"This will COMPLETELY WIPE {self.selected_disk} and create:\n\n"
+                            f"• 1 GiB FAT32 EFI System Partition at /boot\n"
+                            f"• Remaining space as ext4 partition at /\n\n"
+                            f"ALL DATA WILL BE LOST! Are you sure?")
+            else:
+                dialog_body = (f"This will COMPLETELY WIPE {self.selected_disk} and create:\n\n"
+                            f"• Single ext4 partition at / (bootable for Legacy boot)\n\n"
+                            f"ALL DATA WILL BE LOST! Are you sure?\n\n"
+                            f"Note: GRUB will be installed to the MBR")
+            
             # Show confirmation dialog
             dialog = Adw.MessageDialog(
                 heading="Format Entire Disk",
-                body=f"This will COMPLETELY WIPE {self.selected_disk} and create:\n\n"
-                    f"â€¢ 1 GiB FAT32 partition at /boot (bootable)\n"
-                    f"â€¢ Remaining space as ext4 partition at /\n\n"
-                    f"ALL DATA WILL BE LOST! Are you sure?",
+                body=dialog_body,
                 transient_for=self.get_root()
             )
             dialog.add_response("cancel", "Cancel")
             dialog.add_response("wipe", "Wipe Disk")
             dialog.set_response_appearance("wipe", Adw.ResponseAppearance.DESTRUCTIVE)
+            
+            # Store boot_mode for the response handler
+            self._temp_boot_mode = boot_mode
             dialog.connect("response", self._on_wipe_disk_response)
             dialog.present()
             
@@ -1765,83 +1894,141 @@ class DiskUtilityWidget(Gtk.Box):
         """Handle disk wipe confirmation"""
         if response_id == "wipe":
             try:
-                progress_dialog = self._show_progress_dialog("Formatting Disk", "Wiping disk and creating partitions...")
-                self._wipe_disk_sync(progress_dialog)
+                boot_mode = getattr(self, '_temp_boot_mode', 'uefi')
+                if boot_mode == "uefi":
+                    progress_dialog = self._show_progress_dialog("Formatting Disk", "Wiping disk and creating UEFI partitions...")
+                else:
+                    progress_dialog = self._show_progress_dialog("Formatting Disk", "Wiping disk and creating Legacy partitions...")
+                self._wipe_disk_sync(progress_dialog, boot_mode)
             except Exception as e:
                 self._show_error_dialog("Error", f"Failed to wipe disk: {str(e)}")
+            finally:
+                # Clean up temporary variable
+                if hasattr(self, '_temp_boot_mode'):
+                    delattr(self, '_temp_boot_mode')
 
-    def _wipe_disk_sync(self, progress_dialog):
-        """Synchronous disk wiping to avoid complexity"""
+    def _wipe_disk_sync(self, progress_dialog, boot_mode="uefi"):
+        """Synchronous disk wiping with support for both UEFI and Legacy boot modes"""
         try:
-            # Step 1: Create GPT partition table with -s flag for non-interactive mode
-            cmd = ['sudo', 'parted', '-s', self.selected_disk, 'mklabel', 'gpt']
-            process = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-            if process.returncode != 0:
-                raise Exception(f"Failed to create GPT table: {process.stderr}")
+            if boot_mode == "uefi":
+                # UEFI mode: Create GPT with ESP and root partitions
+                # Step 1: Create GPT partition table
+                cmd = ['sudo', 'parted', '-s', self.selected_disk, 'mklabel', 'gpt']
+                process = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                if process.returncode != 0:
+                    raise Exception(f"Failed to create GPT table: {process.stderr}")
+                
+                # Step 2: Create EFI System Partition (1GiB FAT32)
+                cmd = ['sudo', 'parted', '-s', self.selected_disk, 'mkpart', 'primary', 'fat32', '1MiB', '1025MiB']
+                process = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                if process.returncode != 0:
+                    raise Exception(f"Failed to create EFI partition: {process.stderr}")
+                
+                # Step 3: Create root partition (remaining space ext4)
+                cmd = ['sudo', 'parted', '-s', self.selected_disk, 'mkpart', 'primary', 'ext4', '1025MiB', '100%']
+                process = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                if process.returncode != 0:
+                    raise Exception(f"Failed to create root partition: {process.stderr}")
+                
+                # Step 4: Set ESP flag on first partition
+                cmd = ['sudo', 'parted', '-s', self.selected_disk, 'set', '1', 'esp', 'on']
+                process = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                if process.returncode != 0:
+                    raise Exception(f"Failed to set ESP flag: {process.stderr}")
+                
+                # Give the system a moment to recognize new partitions
+                import time
+                time.sleep(2)
+                
+                # Step 5: Format EFI partition as FAT32
+                boot_partition = f"{self.selected_disk}1"
+                cmd = ['sudo', 'mkfs.fat', '-F', '32', boot_partition]
+                process = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                if process.returncode != 0:
+                    raise Exception(f"Failed to format EFI partition: {process.stderr}")
+                
+                # Step 6: Format root partition as ext4
+                root_partition = f"{self.selected_disk}2"
+                cmd = ['sudo', 'mkfs.ext4', '-F', root_partition]
+                process = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                if process.returncode != 0:
+                    raise Exception(f"Failed to format root partition: {process.stderr}")
+                
+                # Step 7: Update configuration with mountpoints
+                if not hasattr(self, 'partition_config'):
+                    self.partition_config = {}
+                
+                # Configure EFI System Partition
+                self.partition_config[boot_partition] = {
+                    'mountpoint': '/boot',
+                    'bootable': True
+                }
+                
+                # Configure root partition
+                self.partition_config[root_partition] = {
+                    'mountpoint': '/',
+                    'bootable': False
+                }
+                
+                success_message = (f"UEFI disk {self.selected_disk} successfully formatted!\n\n"
+                                f"Created partitions:\n"
+                                f"• {boot_partition}: 1 GiB FAT32 at /boot (ESP)\n"
+                                f"• {root_partition}: Remaining space ext4 at /\n\n"
+                                f"fstab has been generated automatically.")
+                
+            else:
+                # Legacy mode: Create MBR with single bootable root partition
+                # Step 1: Create MBR partition table
+                cmd = ['sudo', 'parted', '-s', self.selected_disk, 'mklabel', 'msdos']
+                process = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                if process.returncode != 0:
+                    raise Exception(f"Failed to create MBR table: {process.stderr}")
+                
+                # Step 2: Create single root partition (entire disk)
+                cmd = ['sudo', 'parted', '-s', self.selected_disk, 'mkpart', 'primary', 'ext4', '1MiB', '100%']
+                process = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                if process.returncode != 0:
+                    raise Exception(f"Failed to create root partition: {process.stderr}")
+                
+                # Step 3: Set boot flag on the partition
+                cmd = ['sudo', 'parted', '-s', self.selected_disk, 'set', '1', 'boot', 'on']
+                process = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                if process.returncode != 0:
+                    raise Exception(f"Failed to set boot flag: {process.stderr}")
+                
+                # Give the system a moment to recognize new partitions
+                import time
+                time.sleep(2)
+                
+                # Step 4: Format root partition as ext4
+                root_partition = f"{self.selected_disk}1"
+                cmd = ['sudo', 'mkfs.ext4', '-F', root_partition]
+                process = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                if process.returncode != 0:
+                    raise Exception(f"Failed to format root partition: {process.stderr}")
+                
+                # Step 5: Update configuration with mountpoints
+                if not hasattr(self, 'partition_config'):
+                    self.partition_config = {}
+                
+                # Configure root partition as bootable
+                self.partition_config[root_partition] = {
+                    'mountpoint': '/',
+                    'bootable': True
+                }
+                
+                success_message = (f"Legacy disk {self.selected_disk} successfully formatted!\n\n"
+                                f"Created partitions:\n"
+                                f"• {root_partition}: Full disk ext4 at / (bootable)\n\n"
+                                f"fstab has been generated automatically.\n\n"
+                                f"Note: GRUB will be installed to the MBR of {self.selected_disk}")
             
-            # Step 2: Create boot partition (1GiB FAT32) with -s flag
-            cmd = ['sudo', 'parted', '-s', self.selected_disk, 'mkpart', 'primary', 'fat32', '1MiB', '1025MiB']
-            process = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-            if process.returncode != 0:
-                raise Exception(f"Failed to create boot partition: {process.stderr}")
-            
-            # Step 3: Create root partition (remaining space ext4) with -s flag
-            cmd = ['sudo', 'parted', '-s', self.selected_disk, 'mkpart', 'primary', 'ext4', '1025MiB', '100%']
-            process = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-            if process.returncode != 0:
-                raise Exception(f"Failed to create root partition: {process.stderr}")
-            
-            # Step 4: Set boot flag on first partition with -s flag
-            cmd = ['sudo', 'parted', '-s', self.selected_disk, 'set', '1', 'boot', 'on']
-            process = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-            if process.returncode != 0:
-                raise Exception(f"Failed to set boot flag: {process.stderr}")
-            
-            # Give the system a moment to recognize new partitions
-            import time
-            time.sleep(2)
-            
-            # Step 5: Format boot partition as FAT32
-            boot_partition = f"{self.selected_disk}1"
-            cmd = ['sudo', 'mkfs.fat', '-F', '32', boot_partition]
-            process = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            if process.returncode != 0:
-                raise Exception(f"Failed to format boot partition: {process.stderr}")
-            
-            # Step 6: Format root partition as ext4
-            root_partition = f"{self.selected_disk}2"
-            cmd = ['sudo', 'mkfs.ext4', '-F', root_partition]
-            process = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-            if process.returncode != 0:
-                raise Exception(f"Failed to format root partition: {process.stderr}")
-            
-            # Step 7: Update configuration with mountpoints
-            if not hasattr(self, 'partition_config'):
-                self.partition_config = {}
-            
-            # Configure boot partition
-            self.partition_config[boot_partition] = {
-                'mountpoint': '/boot',
-                'bootable': True
-            }
-            
-            # Configure root partition
-            self.partition_config[root_partition] = {
-                'mountpoint': '/',
-                'bootable': False
-            }
-            
-            # Save configuration and generate fstab
+            # Save configuration and generate fstab for both modes
             self._save_partition_config()
             self._generate_and_apply_fstab()
             
             progress_dialog.destroy()
-            self._show_info_dialog("Success", 
-                        f"Disk {self.selected_disk} successfully formatted!\n\n"
-                        f"Created partitions:\n"
-                        f"â€¢ {boot_partition}: 1 GiB FAT32 at /boot (bootable)\n"
-                        f"â€¢ {root_partition}: Remaining space ext4 at /\n\n"
-                        f"fstab has been generated automatically.")
+            self._show_info_dialog("Success", success_message)
             self.on_refresh_clicked(None)
             
         except subprocess.TimeoutExpired:

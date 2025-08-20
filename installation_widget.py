@@ -9,9 +9,10 @@ from enum import Enum
 from dataclasses import dataclass
 from typing import List, Callable, Optional
 
+
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Gtk, Adw, GLib, Pango
+from gi.repository import Gtk, Adw, GLib, Pango, GObject
 
 class InstallationState(Enum):
     """Enumeration of installation states."""
@@ -36,12 +37,19 @@ class InstallationWidget(Gtk.Box):
     Executes shell commands sequentially with progress tracking.
     """
     
+    __gsignals__ = {
+        'installation-complete': (GObject.SignalFlags.RUN_FIRST, None, ()),
+        'installation-error': (GObject.SignalFlags.RUN_FIRST, None, (str,)),
+        'installation-cancelled': (GObject.SignalFlags.RUN_FIRST, None, ()),
+    }
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.set_orientation(Gtk.Orientation.VERTICAL)
         self.set_spacing(20)
         self.set_margin_top(30)
         self.set_margin_bottom(30)
+
         
         # State tracking
         self.state = InstallationState.IDLE
@@ -90,6 +98,10 @@ class InstallationWidget(Gtk.Box):
         self.operation_label = Gtk.Label(label="Preparing installation...")
         self.operation_label.set_halign(Gtk.Align.START)
         self.operation_label.set_markup('<b>Preparing installation...</b>')
+        self.operation_label.set_margin_top(10)
+        self.operation_label.set_margin_bottom(10)
+        self.operation_label.set_margin_start(10)
+        self.operation_label.set_margin_end(10)
         status_card.append(self.operation_label)
         
         # Current step description
@@ -97,6 +109,10 @@ class InstallationWidget(Gtk.Box):
         self.step_description.set_halign(Gtk.Align.START)
         self.step_description.set_wrap(True)
         self.step_description.add_css_class('dim-label')
+        self.step_description.set_margin_top(10)
+        self.step_description.set_margin_bottom(10)
+        self.step_description.set_margin_start(10)
+        self.step_description.set_margin_end(10)
         status_card.append(self.step_description)
         
         # --- Progress Section ---
@@ -365,444 +381,51 @@ class InstallationWidget(Gtk.Box):
         ))
         
         steps.append(InstallationStep(
-            label="Cleaning up initramfs configuration",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "rm", "-rf", "/etc/mkinitcpio.conf.d"],
-            description="Removing live ISO initramfs configuration",
-            weight=0.1,
-            critical=False
-        ))
-        
-        steps.append(InstallationStep(
-            label="Removing getty service overrides",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "rm", "-rf", "/etc/systemd/system/getty@tty1.service.d"],
-            description="Cleaning up live system getty configuration",
-            weight=0.1,
-            critical=False
-        ))
-        
-        steps.append(InstallationStep(
-            label="Removing pacman-init service links",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "rm", "-rf", "/etc/systemd/system/multi-user.target.wants/pacman-init.service"],
-            description="Removing live system pacman initialization service",
-            weight=0.1,
-            critical=False
-        ))
-        
-        steps.append(InstallationStep(
-            label="Removing pacman-init service",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "rm", "-rf", "/etc/systemd/system/pacman-init.service"],
-            description="Removing pacman initialization service",
-            weight=0.1,
-            critical=False
-        ))
-        
-        steps.append(InstallationStep(
-            label="Removing pacman GPG mount",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "rm", "-rf", "/etc/systemd/system/etc-pacman.d-gnupg.mount"],
-            description="Removing live system pacman GPG mount",
-            weight=0.1,
-            critical=False
-        ))
-        
-        steps.append(InstallationStep(
-            label="Removing root auto-login",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "rm", "-rf", "/root/.zlogin"],
-            description="Removing live system root auto-login",
-            weight=0.1,
-            critical=False
-        ))
-        
-        steps.append(InstallationStep(
-            label="Removing global polkit rules",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "rm", "-rf", "/etc/polkit-1/rules.d/49-nopasswd_global.rules"],
-            description="Removing live system polkit rules",
-            weight=0.1,
-            critical=False
-        ))
-        
-        steps.append(InstallationStep(
-            label="Removing calamares polkit rules",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "rm", "-rf", "/etc/polkit-1/rules.d/49-nopasswd-calamares.rules"],
-            description="Removing installer polkit rules",
-            weight=0.1,
-            critical=False
-        ))
-        
-        steps.append(InstallationStep(
-            label="Removing GDM custom configuration",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "rm", "-rf", "/etc/gdm/custom.conf"],
-            description="Removing live system GDM configuration",
-            weight=0.1,
-            critical=False
-        ))
-        
-        steps.append(InstallationStep(
-            label="Removing MOTD",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "rm", "-rf", "/etc/motd"],
-            description="Removing live system message of the day",
-            weight=0.1,
-            critical=False
-        ))
-        
-        steps.append(InstallationStep(
-            label="Removing dconf logout configuration",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "rm", "-rf", "/etc/dconf/db/local.d/00-logout"],
-            description="Removing live system dconf logout settings",
-            weight=0.1,
-            critical=False
-        ))
-        
-        steps.append(InstallationStep(
-            label="Removing overview disable configuration",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "rm", "-rf", "/etc/dconf/db/local.d/06-disableoverviewinstallation"],
-            description="Removing installer overview disable settings",
-            weight=0.1,
-            critical=False
-        ))
-        
-        # Hide unwanted applications
-        steps.append(InstallationStep(
-            label="Hiding bssh application",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "bash", "-c", "echo -e 'Hidden=true' >> /usr/share/applications/bssh.desktop"],
-            description="Hiding bssh from application menu",
-            weight=0.1,
-            critical=False
-        ))
-        
-        steps.append(InstallationStep(
-            label="Hiding avahi-discover application",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "bash", "-c", "echo -e 'Hidden=true' >> /usr/share/applications/avahi-discover.desktop"],
-            description="Hiding avahi-discover from application menu",
-            weight=0.1,
-            critical=False
-        ))
-        
-        steps.append(InstallationStep(
-            label="Hiding qv4l2 application",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "bash", "-c", "echo -e 'Hidden=true' >> /usr/share/applications/qv4l2.desktop"],
-            description="Hiding qv4l2 from application menu",
-            weight=0.1,
-            critical=False
-        ))
-        
-        steps.append(InstallationStep(
-            label="Hiding qvidcap application",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "bash", "-c", "echo -e 'Hidden=true' >> /usr/share/applications/qvidcap.desktop"],
-            description="Hiding qvidcap from application menu",
-            weight=0.1,
-            critical=False
-        ))
-        
-        steps.append(InstallationStep(
-            label="Hiding stoken-gui application",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "bash", "-c", "echo -e 'Hidden=true' >> /usr/share/applications/stoken-gui.desktop"],
-            description="Hiding stoken-gui from application menu",
-            weight=0.1,
-            critical=False
-        ))
-        
-        steps.append(InstallationStep(
-            label="Hiding stoken-gui-small application",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "bash", "-c", "echo -e 'Hidden=true' >> /usr/share/applications/stoken-gui-small.desktop"],
-            description="Hiding stoken-gui-small from application menu",
-            weight=0.1,
-            critical=False
-        ))
-        
-        steps.append(InstallationStep(
-            label="Hiding vim application",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "bash", "-c", "echo -e 'Hidden=true' >> /usr/share/applications/vim.desktop"],
-            description="Hiding vim from application menu",
-            weight=0.1,
-            critical=False
-        ))
-        
-        steps.append(InstallationStep(
-            label="Hiding lftp application",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "bash", "-c", "echo -e 'Hidden=true' >> /usr/share/applications/lftp.desktop"],
-            description="Hiding lftp from application menu",
-            weight=0.1,
-            critical=False
-        ))
-        
-        steps.append(InstallationStep(
-            label="Hiding bvnc application",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "bash", "-c", "echo -e 'Hidden=true' >> /usr/share/applications/bvnc.desktop"],
-            description="Hiding bvnc from application menu",
-            weight=0.1,
-            critical=False
-        ))
-        
-        steps.append(InstallationStep(
-            label="Hiding GNOME Extensions application",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "bash", "-c", "echo -e 'Hidden=true' >> /usr/share/applications/org.gnome.Extensions.desktop"],
-            description="Hiding GNOME Extensions from application menu",
-            weight=0.1,
-            critical=False
-        ))
-        
-        # Enable system services
-        steps.append(InstallationStep(
-            label="Enabling GDM service",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "systemctl", "enable", "gdm"],
-            description="Enabling GNOME Display Manager",
-            weight=0.2,
-            critical=True
-        ))
-        
-        steps.append(InstallationStep(
-            label="Enabling Bluetooth service",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "systemctl", "enable", "bluetooth"],
-            description="Enabling Bluetooth support",
-            weight=0.2,
-            critical=False
-        ))
-        
-        # Install systemd-boot
-        steps.append(InstallationStep(
-            label="Installing systemd-boot",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "bootctl", "install"],
-            description="Installing systemd-boot bootloader",
+            label="Changing system's language",
+            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "bash", "-c", "/language.sh"],
+            description="Changing system's language to a selected one",
             weight=1.0,
-            critical=True
-        ))
-        
-        steps.append(InstallationStep(
-            label="Creating boot loader entries directory",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "mkdir", "-p", "/boot/loader/entries"],
-            description="Setting up boot loader configuration directory",
-            weight=0.1,
-            critical=True
-        ))
-        
-        steps.append(InstallationStep(
-            label="Configuring bootloader script permissions",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "chmod", "+x", "/etc/calamares/scripts/bootloader"],
-            description="Setting bootloader script permissions",
-            weight=0.1,
-            critical=True
-        ))
-        
-        steps.append(InstallationStep(
-            label="Running bootloader configuration",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "bash", "/etc/calamares/scripts/bootloader"],
-            description="Configuring bootloader entries",
-            weight=1.0,
-            critical=True
-        ))
-        
-        # Move post-installation files
-        steps.append(InstallationStep(
-            label="Setting up zsh configuration",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "mv", "/etc/skel/.zshrc_postinstall", "/etc/skel/.zshrc"],
-            description="Installing zsh configuration for new users",
-            weight=0.1,
-            critical=False
-        ))
-        
-        steps.append(InstallationStep(
-            label="Moving OS release information",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "mv", "/etc/os-release", "/usr/lib/os-release"],
-            description="Setting up OS release information",
-            weight=0.1,
-            critical=False
-        ))
-        
-        steps.append(InstallationStep(
-            label="Creating OS release symlink",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "ln", "-s", "/usr/lib/os-release", "/etc/os-release"],
-            description="Creating OS release symlink",
-            weight=0.1,
-            critical=False
-        ))
-        
-        steps.append(InstallationStep(
-            label="Setting up kernel preset",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "mv", "/etc/mkinitcpio.d/linux-postinstall.preset", "/etc/mkinitcpio.d/linux.preset"],
-            description="Installing kernel initramfs preset",
-            weight=0.1,
-            critical=True
-        ))
-        
-        steps.append(InstallationStep(
-            label="Moving GNOME extensions configuration",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "mv", "/home/petexy/GitHub/Linexin/airootfs/usr/share/linexin/postinstall/05-gnomeextensions", "/etc/dconf/db/local.d/05-gnomeextensions"],
-            description="Setting up GNOME extensions configuration",
-            weight=0.1,
-            critical=False
-        ))
-        
-        steps.append(InstallationStep(
-            label="Removing power button extension",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "rm", "-rf", "/usr/share/gnome-shell/extensions/BringOutSubmenuOfPowerOffLogoutButton@pratap.fastmail.fm"],
-            description="Removing unwanted GNOME extension",
-            weight=0.1,
-            critical=False
-        ))
-        
-        steps.append(InstallationStep(
-            label="Setting up Plymouth watermark",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "mv", "/usr/share/plymouth/themes/spinner/watermark-postinstall.png", "/usr/share/plymouth/themes/spinner/watermark.png"],
-            description="Installing Plymouth boot splash watermark",
-            weight=0.1,
-            critical=False
-        ))
-        
-        steps.append(InstallationStep(
-            label="Removing microcode",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "bash", "/etc/calamares/scripts/remove-ucode"],
-            description="Removing unnecessary microcode packages",
-            weight=0.5,
-            critical=False
-        ))
-        
-        # Set executable permissions for custom scripts
-        steps.append(InstallationStep(
-            label="Setting BSOD script permissions",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "chmod", "+x", "/usr/bin/bsod"],
-            description="Setting executable permissions for BSOD script",
-            weight=0.1,
-            critical=False
-        ))
-        
-        steps.append(InstallationStep(
-            label="Setting rum script permissions",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "chmod", "+x", "/usr/local/bin/rum"],
-            description="Setting executable permissions for rum script",
-            weight=0.1,
-            critical=False
-        ))
-        
-        steps.append(InstallationStep(
-            label="Setting photo script permissions",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "chmod", "+x", "/usr/bin/photo"],
-            description="Setting executable permissions for photo script",
-            weight=0.1,
-            critical=False
-        ))
-        
-        steps.append(InstallationStep(
-            label="Setting designer script permissions",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "chmod", "+x", "/usr/bin/designer"],
-            description="Setting executable permissions for designer script",
-            weight=0.1,
-            critical=False
-        ))
-        
-        steps.append(InstallationStep(
-            label="Setting publisher script permissions",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "chmod", "+x", "/usr/bin/publisher"],
-            description="Setting executable permissions for publisher script",
-            weight=0.1,
-            critical=False
-        ))
-        
-        steps.append(InstallationStep(
-            label="Setting GNOME Shell extensions permissions",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "chmod", "755", "/usr/share/gnome-shell/extensions", "-R"],
-            description="Setting correct permissions for GNOME Shell extensions",
-            weight=0.2,
-            critical=False
-        ))
-        
-        # Update system configuration
-        steps.append(InstallationStep(
-            label="Updating dconf database",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "dconf", "update"],
-            description="Updating system dconf database",
-            weight=0.5,
-            critical=False
-        ))
-        
-        steps.append(InstallationStep(
-            label="Setting audio volume",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "amixer", "set", "Master", "100%"],
-            description="Setting default audio volume",
-            weight=0.1,
-            critical=False
-        ))
-        
-        steps.append(InstallationStep(
-            label="Storing audio settings",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "alsactl", "store"],
-            description="Storing ALSA audio settings",
-            weight=0.1,
-            critical=False
-        ))
-        
-        # Remove unwanted packages
-        steps.append(InstallationStep(
-            label="Removing Totem video player",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "pacman", "-R", "totem", "--noconfirm"],
-            description="Removing Totem video player",
-            weight=0.5,
-            critical=False
-        ))
-        
-        steps.append(InstallationStep(
-            label="Removing archinstall",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "pacman", "-R", "archinstall", "--noconfirm"],
-            description="Removing archinstall package",
-            weight=0.5,
             critical=False
         ))
 
-        # Fix pacman keyring
         steps.append(InstallationStep(
-            label="Initializing pacman keyring",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "pacman-key", "--init"],
-            description="Initializing the pacman keyring for package management",
-            weight=1.0,
-            critical=True
-        ))
-        
-        steps.append(InstallationStep(
-            label="Populating pacman keyring",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "pacman-key", "--populate", "archlinux"],
-            description="Populating the pacman keyring with Arch Linux keys",
-            weight=1.5,
-            critical=True
-        ))
-        
-        steps.append(InstallationStep(
-            label="Updating pacman database",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "pacman", "-Syy"],
-            description="Synchronizing package databases",
+            label="Setting up timezone",
+            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "bash", "-c", "/setup_timezone.sh"],
+            description="Linking timezone to the selected one in the installer",
             weight=1.0,
             critical=False
         ))
-        
-        # Generate initramfs
+
         steps.append(InstallationStep(
-            label="Installing kernel",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "pacman", "-S", "--noconfirm", "linux", "linux-firmware"],
-            description="Installing Linux kernel and firmware",
-            weight=3.0,
-            critical=True
+            label="Setting up keyboard layout",
+            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "bash", "-c", "/setup_keyboard.sh"],
+            description="Using proper commands in chroot environment to set up keyboard layout",
+            weight=1.0,
+            critical=False
         ))
-        
+
         steps.append(InstallationStep(
-            label="Generating initramfs",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "mkinitcpio", "-P"],
-            description="Generating initial RAM filesystem for all kernels",
-            weight=2.0,
-            critical=True
+            label="Adding user",
+            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "bash", "-c", "/add_users.sh"],
+            description="Adding user, setting it's password and hostname for the PC",
+            weight=1.0,
+            critical=False
         ))
-        
+
+        steps.append(InstallationStep(
+            label="Cleaning out rootfs",
+            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "bash", "-c", "/post-install.sh"],
+            description="Cleaning out rootfs from LiveISO's config and applying post-install scripts",
+            weight=1.0,
+            critical=False
+        ))
+
         steps.append(InstallationStep(
             label="Installing bootloader",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "grub-install", "--target=x86_64-efi", "--efi-directory=/boot", "--bootloader-id=Linexin"],
-            description="Installing GRUB bootloader to the system",
-            weight=2.0,
-            critical=True
-        ))
-        
-        steps.append(InstallationStep(
-            label="Configuring bootloader",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "grub-mkconfig", "-o", "/boot/grub/grub.cfg"],
-            description="Generating bootloader configuration",
+            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "bash", "-c", "/bootloader.sh"],
+            description="Checking for other systems installed and installing proper bootloader",
             weight=1.0,
-            critical=True
+            critical=False
         ))
         
         steps.append(InstallationStep(
@@ -999,6 +622,27 @@ class InstallationWidget(Gtk.Box):
         self.step_description.set_text("Your system has been installed and is ready to use.")
         self.progress_bar.set_fraction(1.0)
         self.progress_bar.set_text("100%")
+        
+        # Update buttons
+        self.btn_cancel.set_visible(False)
+        self.btn_continue.set_visible(True)
+        self.btn_continue.set_sensitive(True)
+        self.btn_continue.set_label("Finish")
+        
+        # Add success message to terminal
+        self._append_to_terminal("\n" + "="*50, "success")
+        self._append_to_terminal("INSTALLATION COMPLETED SUCCESSFULLY!", "success")
+        self._append_to_terminal("="*50, "success")
+        
+        # Emit the signal
+        self.emit('installation-complete')
+        
+        if self.on_complete_callback:
+            self.on_complete_callback()
+        
+        return False
+
+
         
         # Update buttons
         self.btn_cancel.set_visible(False)
