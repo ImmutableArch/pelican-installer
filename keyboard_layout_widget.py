@@ -8,6 +8,7 @@ import gettext
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Gtk, Adw
+from simple_localization_manager import get_localization_manager
 
 # --- Localization Setup ---
 APP_NAME = "linexin-installer"
@@ -27,6 +28,8 @@ class KeyboardLayoutWidget(Gtk.Box):
     """
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        get_localization_manager().register_widget(self)
+
         self.set_orientation(Gtk.Orientation.VERTICAL)
         self.set_spacing(20)
         self.set_margin_top(30)

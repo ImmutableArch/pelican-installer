@@ -32,10 +32,121 @@ class SimpleLocalizationManager(GObject.Object):
         super().__init__()
         self.current_language = "en_US.UTF-8"
         self.translations = {}
-        self.registered_widgets = []  # Keep track of top-level widgets
+        self.registered_widgets = []
         self.load_translations()
         self._initialized = True
+        
+        # Patch Adw.MessageDialog to auto-translate
+        self.patch_message_dialog()
+
+    def translate_gtk_dialog(self, dialog):
+        """Translate a GTK.Dialog and its content"""
+        try:
+            # Translate dialog title
+            title = dialog.get_title()
+            if title:
+                dialog.set_title(self.get_text(title))
+            
+            # Recursively translate all children in the content area
+            content_area = dialog.get_content_area()
+            if content_area:
+                self.update_widget_tree(content_area)
+        except Exception as e:
+            print(f"Error translating GTK dialog: {e}")        
     
+    def patch_message_dialog(self):
+        """Monkey-patch Adw.MessageDialog to auto-translate on creation"""
+        original_init = Adw.MessageDialog.__init__
+        original_set_heading = Adw.MessageDialog.set_heading
+        original_set_body = Adw.MessageDialog.set_body
+        original_add_response = Adw.MessageDialog.add_response
+        
+        def patched_init(dialog_self, **kwargs):
+            # Call original init
+            original_init(dialog_self, **kwargs)
+            
+            # Auto-translate if heading/body were provided in kwargs
+            if 'heading' in kwargs:
+                dialog_self.set_heading(kwargs['heading'])
+            if 'body' in kwargs:
+                dialog_self.set_body(kwargs['body'])
+        
+        def patched_set_heading(dialog_self, heading):
+            if heading:
+                heading = self.get_text(heading)
+            original_set_heading(dialog_self, heading)
+        
+        def translate_dynamic_text(self, text):
+            """Translate text that may contain dynamic parts"""
+            # Try direct translation first
+            translated = self.get_text(text)
+            if translated != text:
+                return translated
+            
+            # Handle patterns with dynamic content
+            patterns = [
+                # Pattern: "Are you sure you want to remove partition /dev/vda1?"
+                (r"Are you sure you want to remove partition (.+)\?", 
+                "Are you sure you want to remove partition", "?"),
+                # Pattern: "Toggle boot flag for /dev/vda1?"
+                (r"Toggle boot flag for (.+)\?", 
+                "Toggle boot flag for", "?"),
+                # Pattern: "Select filesystem type for /dev/vda1:"
+                (r"Select filesystem type for (.+):", 
+                "Select filesystem type for", ":"),
+                # Pattern: "Change filesystem type for /dev/vda1:"
+                (r"Change filesystem type for (.+):", 
+                "Change filesystem type for", ":"),
+            ]
+            
+            import re
+            for pattern, prefix, suffix in patterns:
+                match = re.match(pattern, text)
+                if match:
+                    dynamic_part = match.group(1)
+                    translated_prefix = self.get_text(prefix)
+                    translated_suffix = self.get_text(suffix) if suffix and suffix != suffix.strip() else suffix
+                    return f"{translated_prefix} {dynamic_part}{translated_suffix}"
+            
+            return text
+        
+        def patched_set_body(dialog_self, body):
+            if body:
+                # Translate body while preserving structure
+                lines = body.splitlines()
+                translated_lines = []
+                for line in lines:
+                    if not line.strip():
+                        translated_lines.append(line)
+                        continue
+                    
+                    # Handle bullet points
+                    bullet = ""
+                    stripped = line
+                    if stripped.lstrip().startswith("• "):
+                        bullet = "• "
+                        stripped = stripped.lstrip()[2:].strip()
+                    else:
+                        stripped = stripped.strip()
+                    
+                    # Try to translate the line (with dynamic text support)
+                    translated = translate_dynamic_text(self, stripped)
+                    translated_lines.append(f"{bullet}{translated}")
+                
+                body = "\n".join(translated_lines)
+            original_set_body(dialog_self, body)
+        
+        def patched_add_response(dialog_self, response_id, label):
+            if label:
+                label = self.get_text(label)
+            original_add_response(dialog_self, response_id, label)
+        
+        # Apply patches
+        Adw.MessageDialog.__init__ = patched_init
+        Adw.MessageDialog.set_heading = patched_set_heading
+        Adw.MessageDialog.set_body = patched_set_body
+        Adw.MessageDialog.add_response = patched_add_response
+
     def load_translations(self):
         """Load translation data - same as before but with translation keys matching UI text"""
         
@@ -94,7 +205,6 @@ class SimpleLocalizationManager(GObject.Object):
             "Could not launch Gparted": "Could not launch Gparted",
             "OK": "OK",
             
-            # Dialog titles and messages
             "Missing Required Configuration": "Missing Required Configuration",
             "No bootable partition found": "No bootable partition found",
             "No root (/) mountpoint configured": "No root (/) mountpoint configured",
@@ -112,7 +222,6 @@ class SimpleLocalizationManager(GObject.Object):
             "At least one bootable partition": "At least one bootable partition",
             "A root (/) mountpoint": "A root (/) mountpoint",
             
-            # Progress and status messages
             "Auto-Configuring": "Auto-Configuring",
             "Setting up UEFI boot and root partitions...": "Setting up UEFI boot and root partitions...",
             "Setting up Legacy boot and root partitions...": "Setting up Legacy boot and root partitions...",
@@ -130,7 +239,6 @@ class SimpleLocalizationManager(GObject.Object):
             "Note: GRUB will be installed to the MBR of": "Note: GRUB will be installed to the MBR of",
             "Error": "Error",
             
-            # Partition operations
             "Remove Partition": "Remove Partition",
             "Are you sure you want to remove partition": "Are you sure you want to remove partition",
             "This action cannot be undone and all data will be lost!": "This action cannot be undone and all data will be lost!",
@@ -146,7 +254,171 @@ class SimpleLocalizationManager(GObject.Object):
             "swap": "swap",
             "Unformatted": "Unformatted",
             
+            "Format Partition": "Format Partition",
+            "Select filesystem type for": "Select filesystem type for",
+            "Change Filesystem": "Change Filesystem", 
+            "Change filesystem type for": "Change filesystem type for",
+            "Warning: This will reformat the partition and all data will be lost!": "Warning: This will reformat the partition and all data will be lost!",
+            "Boot Flag": "Boot Flag",
+            "Toggle boot flag for": "Toggle boot flag for",
+            "This will modify the partition to be visible in the boot menu.": "This will modify the partition to be visible in the boot menu.",
+            "Enable Boot Flag": "Enable Boot Flag",
+            "Disable Boot Flag": "Disable Boot Flag",
+            "No Selection": "No Selection",
+            "Please select a disk first.": "Please select a disk first.",
+            "Please select a partition first.": "Please select a partition first.",
+            "Invalid Selection": "Invalid Selection",
+            "Cannot add partition to a partition. Please select a disk.": "Cannot add partition to a partition. Please select a disk.",
+            "Can only remove partitions. Please select a partition.": "Can only remove partitions. Please select a partition.",
+            "Format is only available for partitions. Use Auto for whole disks or free space.": "Format is only available for partitions. Use Auto for whole disks or free space.",
+            "Auto configuration is only available for whole disks or free space.": "Auto configuration is only available for whole disks or free space.",
+            "Can only change filesystem of partitions. Please select a partition.": "Can only change filesystem of partitions. Please select a partition.",
+            "Can only set mountpoint for partitions. Please select a partition.": "Can only set mountpoint for partitions. Please select a partition.",
+            "Can only set boot flag on partitions. Please select a partition.": "Can only set boot flag on partitions. Please select a partition.",
+            "Please select a disk or free space first.": "Please select a disk or free space first.",
+            "Please select a partition or free space first.": "Please select a partition or free space first.",
+            "No device selected": "No device selected",
+            "Format Entire Disk": "Format Entire Disk",
+            "This will COMPLETELY WIPE": "This will COMPLETELY WIPE",
+            "and create:": "and create:",
+            "1 GiB FAT32 EFI System Partition at /boot": "1 GiB FAT32 EFI System Partition at /boot",
+            "Remaining space as ext4 partition at /": "Remaining space as ext4 partition at /",
+            "Single ext4 partition at / (bootable for Legacy boot)": "Single ext4 partition at / (bootable for Legacy boot)",
+            "ALL DATA WILL BE LOST! Are you sure?": "ALL DATA WILL BE LOST! Are you sure?",
+            "Note: GRUB will be installed to the MBR": "Note: GRUB will be installed to the MBR",
+            "Wipe Disk": "Wipe Disk",
+
+            "Are you sure you want to remove partition": "Are you sure you want to remove partition",
+            "Toggle boot flag for": "Toggle boot flag for",
+            "?": "?",
+            ":": ":",
+            "The following requirements are missing:": "The following requirements are missing:",
+
+            "Create Partition": "Create Partition",
+            "Create partition on": "Create partition on",
+            "Size:": "Size:",
+            "10 or leave empty for max": "10 or leave empty for max",
+            "MB": "MB",
+            "GB": "GB", 
+            "TB": "TB",
+            "Filesystem:": "Filesystem:",
+            "Create": "Create",
+
+            "Set Mountpoint": "Set Mountpoint",
+            "Set mountpoint for": "Set mountpoint for",
+            "Or enter custom mountpoint:": "Or enter custom mountpoint:",
+            "/custom/path": "/custom/path",
+            "Set": "Set",
+            "/home": "/home",
+            "/boot": "/boot",
+            "/var": "/var",
+            "/tmp": "/tmp",
+            "/usr": "/usr",
+
+            "Invalid Size": "Invalid Size",
+            "Size must be greater than 0": "Size must be greater than 0",
+            "Please enter a valid number": "Please enter a valid number",
+            "Invalid Mountpoint": "Invalid Mountpoint",
+            "Mountpoint must start with '/'": "Mountpoint must start with '/'",
+
+            "Creating Partition": "Creating Partition",
+            "Creating partition, please wait...": "Creating partition, please wait...",
+            "Removing Partition": "Removing Partition",
+            "Removing partition": "Removing partition",
+            "Formatting Partition": "Formatting Partition",
+            "Formatting": "Formatting",
+            "with": "with",
+            "Setting Boot Flag": "Setting Boot Flag",
+            "Setting boot flag for": "Setting boot flag for",
+            "Please wait...": "Please wait...",
+
+            "Partition created successfully:": "Partition created successfully:",
+            "Partition removed successfully": "Partition removed successfully",
+            "formatted successfully with": "formatted successfully with",
+            "Mountpoint Set": "Mountpoint Set",
+            "Mountpoint for": "Mountpoint for",
+            "set to:": "set to:",
+            "Configuration saved and /etc/fstab updated.": "Configuration saved and /etc/fstab updated.",
+            "Boot flag enabled for": "Boot flag enabled for",
+            "Boot flag disabled for": "Boot flag disabled for",
+
+            "Create partition on": "Create partition on",
+            "Set mountpoint for": "Set mountpoint for",
+            "Removing partition": "Removing partition",
+            "Formatting": "Formatting",
+            "with": "with",
+            "Setting boot flag for": "Setting boot flag for",
+
+            "Selected:": "Selected:",
+
+            "Size:": "Size:",
+            "Type:": "Type:",
+            "Mount:": "Mount:",
+            "disk": "disk",
+            "part": "part",
+            "loop": "loop",
+
+            "vfat": "vfat",
+            "xfs": "xfs",
+            "f2fs": "f2fs",
+            "reiserfs": "reiserfs",
+            "jfs": "jfs",
+            "nilfs2": "nilfs2",
+
+            # User Creation Widget
+            "Create Your User Account": "Create Your User Account",
+            "Set up your account to log in to the system.": "Set up your account to log in to the system.",
+            "User Account": "User Account",
+            "Username": "Username",
+            "e.g., john": "e.g., john",
+            "Full Name": "Full Name",
+            "e.g., John Doe": "e.g., John Doe",
+            "Password": "Password",
+            "Repeat Password": "Repeat Password",
+            "System Configuration": "System Configuration",
+            "Computer's Name": "Computer's Name",
+            "Linexin-PC": "Linexin-PC",
+            "Enable Root account?": "Enable Root account?",
+            "Root Password": "Root Password",
+            "Repeat Root Password": "Repeat Root Password",
+            "Username is required": "Username is required",
+            "Username must start with a letter or underscore, and contain only lowercase letters, numbers, underscores, and hyphens": "Username must start with a letter or underscore, and contain only lowercase letters, numbers, underscores, and hyphens",
+            "Username must be 32 characters or less": "Username must be 32 characters or less",
+            "is a reserved system username": "is a reserved system username",
+            "Computer name is required": "Computer name is required",
+            "Must start and end with a letter or number, and contain only letters, numbers, and hyphens": "Must start and end with a letter or number, and contain only letters, numbers, and hyphens",
+            "Computer name must be 63 characters or less": "Computer name must be 63 characters or less",
+            "Passwords do not match": "Passwords do not match",
+            "Root passwords do not match": "Root passwords do not match",
+            "Error": "Error",
+            "Failed to generate configuration files:": "Failed to generate configuration files:",
+            "Try specifying a different output directory with more space.": "Try specifying a different output directory with more space.",
+
+            # Password strength indicators
+            "Weak": "Weak",
+            "Fair": "Fair",
+            "Good": "Good",
+            "Strong": "Strong",
+            "at least 8 characters": "at least 8 characters",
+            "lowercase letters": "lowercase letters",
+            "uppercase letters": "uppercase letters",
+            "numbers": "numbers",
+            "special characters": "special characters",
+            "add": "add",
+            "(add": "(add",
+            ")": ")",
+
             # Installation Widget
+            "The installation could not be completed.": "The installation could not be completed.",
+            "Please check the details for more information.": "Please check the details for more information.",
+            "Installation cancelled by user.": "Installation cancelled by user.",
+            "Error executing step": "Error executing step",
+            "Step failed:": "Step failed:",
+            "(exit code:": "(exit code:",
+            "Warning: Non-critical step failed:": "Warning: Non-critical step failed:",
+            "completed successfully": "completed successfully",
+            "Files copied:": "Files copied:",
+
             "Installing System": "Installing System",
             "Preparing installation...": "Preparing installation...",
             "Please wait while the system prepares for installation": "Please wait while the system prepares for installation",
@@ -211,8 +483,9 @@ class SimpleLocalizationManager(GObject.Object):
             
             # Finish Widget
             "Installation has finished successfully!": "Installation has finished successfully!",
-            "Everything is set up for you. Thank you for choosing LineXin.": "Everything is set up for you. Thank you for choosing LineXin.",
+            "Everything is set up for you. Thank you for choosing Linexin.": "Everything is set up for you. Thank you for choosing Linexin.",
             "Reboot the system to finish installation.": "Reboot the system to finish installation.",
+            "Everything is set up for you. Thank you for choosing Linexin.\nReboot the system to finish installation.": "Everything is set up for you. Thank you for choosing Linexin.\nReboot the system to finish installation.",
             "Reboot": "Reboot",
             "Reboot System": "Reboot System",
             "Are you sure you want to reboot now?": "Are you sure you want to reboot now?",
@@ -274,7 +547,6 @@ class SimpleLocalizationManager(GObject.Object):
             "Could not launch Gparted": "Nie można uruchomić Gparted",
             "OK": "OK",
             
-            # Dialog titles and messages
             "Missing Required Configuration": "Brak wymaganej konfiguracji",
             "No bootable partition found": "Nie znaleziono partycji startowej",
             "No root (/) mountpoint configured": "Nie skonfigurowano punktu montowania root (/)",
@@ -292,7 +564,6 @@ class SimpleLocalizationManager(GObject.Object):
             "At least one bootable partition": "Przynajmniej jedna partycja startowa",
             "A root (/) mountpoint": "Punkt montowania root (/)",
             
-            # Progress and status messages
             "Auto-Configuring": "Automatyczna konfiguracja",
             "Setting up UEFI boot and root partitions...": "Konfigurowanie partycji UEFI boot i root...",
             "Setting up Legacy boot and root partitions...": "Konfigurowanie partycji Legacy boot i root...",
@@ -310,7 +581,6 @@ class SimpleLocalizationManager(GObject.Object):
             "Note: GRUB will be installed to the MBR of": "Uwaga: GRUB zostanie zainstalowany w MBR dysku",
             "Error": "Błąd",
             
-            # Partition operations
             "Remove Partition": "Usuń partycję",
             "Are you sure you want to remove partition": "Czy na pewno chcesz usunąć partycję",
             "This action cannot be undone and all data will be lost!": "Ta operacja jest nieodwracalna, wszystkie dane zostaną utracone!",
@@ -325,8 +595,171 @@ class SimpleLocalizationManager(GObject.Object):
             "exFAT": "exFAT",
             "swap": "swap",
             "Unformatted": "Niesformatowane",
+
+            "Format Partition": "Formatuj partycję",
+            "Select filesystem type for": "Wybierz system plików dla",
+            "Change Filesystem": "Zmień system plików",
+            "Change filesystem type for": "Zmień system plików dla",
+            "Warning: This will reformat the partition and all data will be lost!": "Ostrzeżenie: To sformatuje partycję i wszystkie dane zostaną utracone!",
+            "Boot Flag": "Flaga rozruchowa",
+            "Toggle boot flag for": "Przełącz flagę rozruchową dla",
+            "This will modify the partition to be visible in the boot menu.": "To zmodyfikuje partycję, aby była widoczna w menu rozruchowym.",
+            "Enable Boot Flag": "Włącz flagę rozruchową",
+            "Disable Boot Flag": "Wyłącz flagę rozruchową",
+            "No Selection": "Brak wyboru",
+            "Please select a disk first.": "Najpierw wybierz dysk.",
+            "Please select a partition first.": "Najpierw wybierz partycję.",
+            "Invalid Selection": "Nieprawidłowy wybór",
+            "Cannot add partition to a partition. Please select a disk.": "Nie można dodać partycji do partycji. Wybierz dysk.",
+            "Can only remove partitions. Please select a partition.": "Można usuwać tylko partycje. Wybierz partycję.",
+            "Format is only available for partitions. Use Auto for whole disks or free space.": "Formatowanie jest dostępne tylko dla partycji. Użyj Auto dla całych dysków lub wolnego miejsca.",
+            "Auto configuration is only available for whole disks or free space.": "Automatyczna konfiguracja jest dostępna tylko dla całych dysków lub wolnego miejsca.",
+            "Can only change filesystem of partitions. Please select a partition.": "Można zmienić system plików tylko partycji. Wybierz partycję.",
+            "Can only set mountpoint for partitions. Please select a partition.": "Można ustawić punkt montowania tylko dla partycji. Wybierz partycję.",
+            "Can only set boot flag on partitions. Please select a partition.": "Można ustawić flagę rozruchową tylko na partycjach. Wybierz partycję.",
+            "Please select a disk or free space first.": "Najpierw wybierz dysk lub wolne miejsce.",
+            "Please select a partition or free space first.": "Najpierw wybierz partycję lub wolne miejsce.",
+            "No device selected": "Nie wybrano urządzenia",
+            "Format Entire Disk": "Formatuj cały dysk",
+            "This will COMPLETELY WIPE": "To CAŁKOWICIE WYMAŻE",
+            "and create:": "i utworzy:",
+            "1 GiB FAT32 EFI System Partition at /boot": "1 GiB partycję systemową EFI FAT32 w /boot",
+            "Remaining space as ext4 partition at /": "Pozostałe miejsce jako partycja ext4 w /",
+            "Single ext4 partition at / (bootable for Legacy boot)": "Pojedyncza partycja ext4 w / (rozruchowa dla Legacy boot)",
+            "ALL DATA WILL BE LOST! Are you sure?": "WSZYSTKIE DANE ZOSTANĄ UTRACONE! Czy na pewno?",
+            "Note: GRUB will be installed to the MBR": "Uwaga: GRUB zostanie zainstalowany w MBR",
+            "Wipe Disk": "Wymaż dysk",
+            "Are you sure you want to remove partition": "Czy na pewno chcesz usunąć partycję",
+            "Toggle boot flag for": "Przełącz flagę rozruchową dla",
+            "?": "?",
+            ":": ":",
+            "The following requirements are missing:": "Brakuje następujących wymagań:",
             
+            "Create Partition": "Utwórz partycję",
+            "Create partition on": "Utwórz partycję na",
+            "Size:": "Rozmiar:",
+            "10 or leave empty for max": "10 lub pozostaw puste dla maks.",
+            "MB": "MB",
+            "GB": "GB",
+            "TB": "TB", 
+            "Filesystem:": "System plików:",
+            "Create": "Utwórz",
+
+            "Set Mountpoint": "Ustaw punkt montowania",
+            "Set mountpoint for": "Ustaw punkt montowania dla",
+            "Or enter custom mountpoint:": "Lub wprowadź własny punkt montowania:",
+            "/custom/path": "/własna/ścieżka",
+            "Set": "Ustaw",
+            "/home": "/home",
+            "/boot": "/boot",
+            "/var": "/var",
+            "/tmp": "/tmp",
+            "/usr": "/usr",
+
+            "Invalid Size": "Nieprawidłowy rozmiar",
+            "Size must be greater than 0": "Rozmiar musi być większy niż 0",
+            "Please enter a valid number": "Wprowadź prawidłową liczbę",
+            "Invalid Mountpoint": "Nieprawidłowy punkt montowania",
+            "Mountpoint must start with '/'": "Punkt montowania musi zaczynać się od '/'",
+
+            "Creating Partition": "Tworzenie partycji",
+            "Creating partition, please wait...": "Tworzenie partycji, proszę czekać...",
+            "Removing Partition": "Usuwanie partycji",
+            "Removing partition": "Usuwanie partycji",
+            "Formatting Partition": "Formatowanie partycji",
+            "Formatting": "Formatowanie",
+            "with": "na",
+            "Setting Boot Flag": "Ustawianie flagi rozruchowej",
+            "Setting boot flag for": "Ustawianie flagi rozruchowej dla",
+            "Please wait...": "Proszę czekać...",
+
+            "Partition created successfully:": "Partycja utworzona pomyślnie:",
+            "Partition removed successfully": "Partycja usunięta pomyślnie",
+            "formatted successfully with": "sformatowana pomyślnie na",
+            "Mountpoint Set": "Punkt montowania ustawiony",
+            "Mountpoint for": "Punkt montowania dla",
+            "set to:": "ustawiony na:",
+            "Configuration saved and /etc/fstab updated.": "Konfiguracja zapisana i /etc/fstab zaktualizowany.",
+            "Boot flag enabled for": "Flaga rozruchowa włączona dla",
+            "Boot flag disabled for": "Flaga rozruchowa wyłączona dla",
+
+            "Create partition on": "Utwórz partycję na",
+            "Set mountpoint for": "Ustaw punkt montowania dla",
+            "Removing partition": "Usuwanie partycji",
+            "Formatting": "Formatowanie",
+            "with": "na",
+            "Setting boot flag for": "Ustawianie flagi rozruchowej dla",
+
+            "Selected:": "Wybrano:",
+
+            "Size:": "Rozmiar:",
+            "Type:": "Typ:",
+            "Mount:": "Montowanie:",
+            "disk": "dysk",
+            "part": "partycja",
+            "loop": "pętla",
+
+            "vfat": "vfat",
+            "xfs": "xfs",
+            "f2fs": "f2fs",
+            "reiserfs": "reiserfs",
+            "jfs": "jfs",
+            "nilfs2": "nilfs2",
+
+            # User Creation Widget
+            "Create Your User Account": "Utwórz swoje konto użytkownika",
+            "Set up your account to log in to the system.": "Skonfiguruj swoje konto, aby zalogować się do systemu.",
+            "User Account": "Konto użytkownika",
+            "Username": "Nazwa użytkownika",
+            "e.g., john": "np. jan",
+            "Full Name": "Pełna nazwa",
+            "e.g., John Doe": "np. Jan Kowalski",
+            "Password": "Hasło",
+            "Repeat Password": "Powtórz hasło",
+            "System Configuration": "Konfiguracja systemu",
+            "Computer's Name": "Nazwa komputera",
+            "Linexin-PC": "Linexin-PC",
+            "Enable Root account?": "Włączyć konto root?",
+            "Root Password": "Hasło root",
+            "Repeat Root Password": "Powtórz hasło root",
+            "Username is required": "Nazwa użytkownika jest wymagana",
+            "Username must start with a letter or underscore, and contain only lowercase letters, numbers, underscores, and hyphens": "Nazwa użytkownika musi zaczynać się od litery lub podkreślenia i zawierać tylko małe litery, cyfry, podkreślenia i myślniki",
+            "Username must be 32 characters or less": "Nazwa użytkownika musi mieć 32 znaki lub mniej",
+            "is a reserved system username": "jest zarezerwowaną nazwą użytkownika systemowego",
+            "Computer name is required": "Nazwa komputera jest wymagana",
+            "Must start and end with a letter or number, and contain only letters, numbers, and hyphens": "Musi zaczynać się i kończyć literą lub cyfrą i zawierać tylko litery, cyfry i myślniki",
+            "Computer name must be 63 characters or less": "Nazwa komputera musi mieć 63 znaki lub mniej",
+            "Passwords do not match": "Hasła nie pasują do siebie",
+            "Root passwords do not match": "Hasła root nie pasują do siebie",
+            "Error": "Błąd",
+            "Failed to generate configuration files:": "Nie udało się wygenerować plików konfiguracyjnych:",
+            "Try specifying a different output directory with more space.": "Spróbuj określić inny katalog wyjściowy z większą ilością miejsca.",
+
+            # Password strength indicators
+            "Weak": "Słabe",
+            "Fair": "Średnie",
+            "Good": "Dobre",
+            "Strong": "Silne",
+            "at least 8 characters": "co najmniej 8 znaków",
+            "lowercase letters": "małe litery",
+            "uppercase letters": "duże litery",
+            "numbers": "cyfry",
+            "special characters": "znaki specjalne",
+            "add": "dodaj",
+            "(add": "(dodaj",
+            ")": ")",
+
             # Installation Widget
+            "The installation could not be completed.": "Instalacja nie mogła zostać zakończona.",
+            "Please check the details for more information.": "Sprawdź szczegóły, aby uzyskać więcej informacji.",
+            "Installation cancelled by user.": "Instalacja anulowana przez użytkownika.",
+            "Error executing step": "Błąd podczas wykonywania kroku",
+            "Step failed:": "Krok nie powiódł się:",
+            "(exit code:": "(kod wyjścia:",
+            "Warning: Non-critical step failed:": "Ostrzeżenie: Niekrytyczny krok nie powiódł się:",
+            "completed successfully": "zakończono pomyślnie",
+            "Files copied:": "Skopiowane pliki:",
+
             "Installing System": "Instalowanie systemu",
             "Preparing installation...": "Przygotowywanie instalacji...",
             "Please wait while the system prepares for installation": "Proszę czekać, system przygotowuje się do instalacji",
@@ -391,14 +824,16 @@ class SimpleLocalizationManager(GObject.Object):
             
             # Finish Widget
             "Installation has finished successfully!": "Instalacja zakończyła się pomyślnie!",
-            "Everything is set up for you. Thank you for choosing LineXin.": "Wszystko zostało skonfigurowane. Dziękujemy za wybór LineXin.",
+            "Everything is set up for you. Thank you for choosing Linexin.": "Wszystko zostało skonfigurowane. Dziękujemy za wybór Linexin.",
             "Reboot the system to finish installation.": "Uruchom ponownie system, aby zakończyć instalację.",
             "Reboot": "Uruchom ponownie",
             "Reboot System": "Uruchom ponownie system",
             "Are you sure you want to reboot now?": "Czy na pewno chcesz teraz uruchomić ponownie?",
             "Reboot Failed": "Ponowne uruchomienie nie powiodło się",
             "Could not reboot the system. Please reboot manually.": "Nie udało się uruchomić ponownie systemu. Zrób to ręcznie.",
+            "Everything is set up for you. Thank you for choosing Linexin.\nReboot the system to finish installation.": "Wszystko zostało skonfigurowane. Dziękujemy za wybór Linexin.\nUruchom ponownie system, aby zakończyć instalację.",
             "Installation Complete": "Instalacja zakończona"
+
         }
 
     def translate_dialog(self, dialog):
@@ -503,28 +938,55 @@ class SimpleLocalizationManager(GObject.Object):
             
             if isinstance(widget, Gtk.Button):
                 label = widget.get_label()
-                if label and label in self.translations[self.current_language]:
-                    widget.set_label(self.translations[self.current_language][label])
-                    
-            elif isinstance(widget, Gtk.Label):
-                # Handle both regular text and markup
-                text = widget.get_text()
-                if text and text in self.translations[self.current_language]:
-                    # Preserve markup structure for titles
-                    if 'size="xx-large"' in (widget.get_label() or ""):
-                        widget.set_markup(f'<span size="xx-large" weight="bold">{self.translations[self.current_language][text]}</span>')
-                    else:
-                        widget.set_text(self.translations[self.current_language][text])
+                if label:
+                    translated = self.get_text(label)
+                    if translated != label: 
+                        widget.set_label(translated)
                         
+            elif isinstance(widget, Gtk.Label):
+                # Get the actual text content (without markup)
+                text = widget.get_text()
+                if text:
+                    # Try to translate the text
+                    translated = self.get_text(text)
+                    if translated != text:  # Translation found
+                        # Check if the label uses markup
+                        label_content = widget.get_label()
+                        if label_content and ('<' in label_content and '>' in label_content):
+                            # It has markup - try to preserve it
+                            if '<span' in label_content and '</span>' in label_content:
+                                # Extract span attributes if any
+                                import re
+                                # Match opening span tag with attributes
+                                match = re.match(r'<span([^>]*)>.*</span>', label_content)
+                                if match:
+                                    span_attrs = match.group(1)
+                                    widget.set_markup(f'<span{span_attrs}>{translated}</span>')
+                                else:
+                                    widget.set_markup(f'<span>{translated}</span>')
+                            elif '<b>' in label_content:
+                                widget.set_markup(f'<b>{translated}</b>')
+                            else:
+                                # Try to replace the text within the markup
+                                new_markup = label_content.replace(text, translated)
+                                widget.set_markup(new_markup)
+                        else:
+                            # No markup, just set text
+                            widget.set_text(translated)
+                            
             elif isinstance(widget, Gtk.SearchEntry) or isinstance(widget, Gtk.Entry):
                 placeholder = widget.get_placeholder_text()
-                if placeholder and placeholder in self.translations[self.current_language]:
-                    widget.set_placeholder_text(self.translations[self.current_language][placeholder])
-                    
+                if placeholder:
+                    translated = self.get_text(placeholder)
+                    if translated != placeholder:
+                        widget.set_placeholder_text(translated)
+                        
             elif isinstance(widget, Adw.WindowTitle):
                 title = widget.get_title()
-                if title and title in self.translations[self.current_language]:
-                    widget.set_title(self.translations[self.current_language][title])
+                if title:
+                    translated = self.get_text(title)
+                    if translated != title:
+                        widget.set_title(translated)
 
             elif isinstance(widget, Adw.MessageDialog):
                 # Heading: simple direct lookup
@@ -547,8 +1009,6 @@ class SimpleLocalizationManager(GObject.Object):
                         bullet = ""
                         stripped = line
                         if stripped.lstrip().startswith("• "):
-                            # normalize: keep exact leading "• " if present
-                            # (works even if line had leading spaces)
                             bullet = "• "
                             stripped = stripped.lstrip()[2:].strip()
                         else:

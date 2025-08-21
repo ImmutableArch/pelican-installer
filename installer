@@ -43,14 +43,13 @@ class MainWindow(Adw.ApplicationWindow):
 
 
         super().__init__(application=app)
-        self.set_title("")
+        self.set_title("◉○○○○○○")
         self.set_default_size(1100, 800)
         self.progress_visible = False
         self.install_started = False
         self.progress_data = ""
         self.error_message = None
         self.caro = 4
-        self.set_title("") 
 
         # --- Main Layout Changes ---
         top_level_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)

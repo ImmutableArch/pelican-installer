@@ -12,6 +12,8 @@ import subprocess
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Gtk, Adw, GLib
+from simple_localization_manager import get_localization_manager
+_ = get_localization_manager().get_text
 
 class UserCreationWidget(Gtk.Box):
     """
@@ -20,6 +22,8 @@ class UserCreationWidget(Gtk.Box):
     """
     def __init__(self, config_output_dir=None, **kwargs):
         super().__init__(**kwargs)
+        get_localization_manager().register_widget(self)
+
         self.set_orientation(Gtk.Orientation.VERTICAL)
         self.set_spacing(20)
         self.set_margin_top(30)
@@ -250,6 +254,7 @@ class UserCreationWidget(Gtk.Box):
         
         # Initial validation
         self.validate_fields()
+        get_localization_manager().update_widget_tree(self)
     
     def on_root_toggled(self, switch, param):
         """Handle root account toggle."""

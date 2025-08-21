@@ -11,6 +11,8 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
 from gi.repository import Gtk, Adw, Gio, Gdk, GLib, GObject
+from simple_localization_manager import get_localization_manager
+_ = get_localization_manager().get_text
 
 class DiskUtilityWidget(Gtk.Box):
 
@@ -21,6 +23,8 @@ class DiskUtilityWidget(Gtk.Box):
     def __init__(self, **kwargs):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, **kwargs)
         self.init_partition_config()
+        get_localization_manager().register_widget(self)
+
         # --- FIX: Apply the CSS globally to the display, not just this widget. ---
         # This ensures the hover effects on child widgets like Adw.ActionRow work correctly.
         css_provider = Gtk.CssProvider()
@@ -1153,6 +1157,8 @@ class DiskUtilityWidget(Gtk.Box):
         content_area.append(self.mountpoint_entry)
         
         dialog.connect("response", self._on_mountpoint_dialog_response)
+        from simple_localization_manager import get_localization_manager
+        get_localization_manager().translate_gtk_dialog(dialog)
         dialog.present()
 
     def _set_mountpoint(self, dialog, mountpoint):
@@ -1309,6 +1315,8 @@ class DiskUtilityWidget(Gtk.Box):
         content_area.append(self.partition_fs_combo)
         
         dialog.connect("response", self._on_partition_create_response)
+        from simple_localization_manager import get_localization_manager
+        get_localization_manager().translate_gtk_dialog(dialog)
         dialog.present()
 
     def _on_partition_create_response(self, dialog, response_id):

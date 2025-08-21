@@ -13,6 +13,7 @@ from typing import List, Callable, Optional
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Gtk, Adw, GLib, Pango, GObject
+from simple_localization_manager import get_localization_manager
 
 class InstallationState(Enum):
     """Enumeration of installation states."""
@@ -67,13 +68,15 @@ class InstallationWidget(Gtk.Box):
         
         # Build UI
         self._build_ui()
+
     
     def _build_ui(self):
         """Build the user interface."""
         
         # --- Title Section ---
         self.title = Gtk.Label()
-        self.title.set_markup('<span size="xx-large" weight="bold">Installing System</span>')
+        localization_manager = get_localization_manager()
+        self.title.set_markup(f'<span size="xx-large" weight="bold">{localization_manager.get_text("Installing System")}</span>')
         self.title.set_halign(Gtk.Align.CENTER)
         self.append(self.title)
         
@@ -206,6 +209,7 @@ class InstallationWidget(Gtk.Box):
         
         # Start timer update
         GLib.timeout_add(1000, self._update_timer)
+
     
     def _get_mount_root_command(self):
         """Generate a bash command to parse fstab and mount root device."""
@@ -450,7 +454,9 @@ class InstallationWidget(Gtk.Box):
         # Update UI
         self.btn_cancel.set_sensitive(True)
         self.btn_continue.set_visible(False)
-        self.title.set_markup('<span size="xx-large" weight="bold">Installing System</span>')
+        localization_manager = get_localization_manager()
+        self.title.set_markup(f'<span size="xx-large" weight="bold">{localization_manager.get_text("Installing System")}</span>')
+
         
         # Start installation thread
         self.installation_thread = threading.Thread(target=self._run_installation)
@@ -541,9 +547,10 @@ class InstallationWidget(Gtk.Box):
     
     def _update_step_info(self, step: InstallationStep, index: int):
         """Update the UI with current step information."""
-        self.operation_label.set_markup(f'<b>{step.label}</b>')
-        self.step_description.set_text(step.description)
-        self.step_counter.set_text(f"Step {index + 1} of {len(self.installation_steps)}")
+        localization_manager = get_localization_manager()
+        self.operation_label.set_markup(f'<b>{localization_manager.get_text(step.label)}</b>')
+        self.step_description.set_text(localization_manager.get_text(step.description))
+        self.step_counter.set_text(f"{localization_manager.get_text('Step')} {index + 1} {localization_manager.get_text('of')} {len(self.installation_steps)}")
         return False
     
     def _update_progress(self, progress: float):
@@ -575,15 +582,20 @@ class InstallationWidget(Gtk.Box):
             elapsed = int(time.time() - self.start_time)
             minutes = elapsed // 60
             seconds = elapsed % 60
-            self.time_label.set_text(f"Elapsed time: {minutes:02d}:{seconds:02d}")
+            localization_manager = get_localization_manager()
+            self.time_label.set_text(f"{localization_manager.get_text('Elapsed time')}: {minutes:02d}:{seconds:02d}")
         
         return True  # Continue timer
     
     def _on_toggle_details(self, button):
         """Toggle the details view."""
+        localization_manager = get_localization_manager()
         self.show_details = not self.show_details
         self.details_revealer.set_reveal_child(self.show_details)
-        self.toggle_details_btn.set_label("Hide Details" if self.show_details else "Show Details")
+        self.toggle_details_btn.set_label(
+            localization_manager.get_text("Hide Details") if self.show_details 
+            else localization_manager.get_text("Show Details")
+        )
     
     def _on_cancel_clicked(self, button):
         """Handle cancel button click."""
@@ -607,7 +619,8 @@ class InstallationWidget(Gtk.Box):
         if response == "stop":
             self.should_cancel = True
             self.btn_cancel.set_sensitive(False)
-            self.operation_label.set_markup('<b>Cancelling installation...</b>')
+            localization_manager = get_localization_manager()
+            self.operation_label.set_markup(f'<b>{localization_manager.get_text("Cancelling installation...")}</b>')
     
     def _on_continue_clicked(self, button):
         """Handle continue button click."""
@@ -663,23 +676,24 @@ class InstallationWidget(Gtk.Box):
     def _on_installation_error(self, error_msg: str):
         """Handle installation error."""
         self.state = InstallationState.ERROR
-        self.title.set_markup('<span size="xx-large" weight="bold">Installation Failed</span>')
-        self.operation_label.set_markup('<b>An error occurred during installation</b>')
+        localization_manager = get_localization_manager()
+        self.title.set_markup(f'<span size="xx-large" weight="bold">{localization_manager.get_text("Installation Failed")}</span>')
+        self.operation_label.set_markup(f'<b>{localization_manager.get_text("An error occurred during installation")}</b>')
         self.step_description.set_text(error_msg)
         
         # Update buttons
         self.btn_cancel.set_visible(False)
         self.btn_continue.set_visible(True)
         self.btn_continue.set_sensitive(True)
-        self.btn_continue.set_label("Try Again")
+        self.btn_continue.set_label(localization_manager.get_text("Try Again"))
         
         # Show error dialog
         dialog = Adw.MessageDialog(
             transient_for=self.get_root(),
-            heading="Installation Failed",
-            body=f"The installation could not be completed.\n\nError: {error_msg}\n\nPlease check the details for more information."
+            heading=localization_manager.get_text("Installation Failed"),
+            body=f"{localization_manager.get_text('The installation could not be completed.')}\n\n{localization_manager.get_text('Error')}: {error_msg}\n\n{localization_manager.get_text('Please check the details for more information.')}"
         )
-        dialog.add_response("ok", "OK")
+        dialog.add_response("ok", localization_manager.get_text("OK"))
         dialog.present()
         
         if self.on_error_callback:
@@ -690,17 +704,18 @@ class InstallationWidget(Gtk.Box):
     def _on_installation_cancelled(self):
         """Handle installation cancellation."""
         self.state = InstallationState.CANCELLED
-        self.title.set_markup('<span size="xx-large" weight="bold">Installation Cancelled</span>')
-        self.operation_label.set_markup('<b>Installation was cancelled by user</b>')
-        self.step_description.set_text("The installation process was interrupted.")
+        localization_manager = get_localization_manager()
+        self.title.set_markup(f'<span size="xx-large" weight="bold">{localization_manager.get_text("Installation Cancelled")}</span>')
+        self.operation_label.set_markup(f'<b>{localization_manager.get_text("Installation was cancelled by user")}</b>')
+        self.step_description.set_text(localization_manager.get_text("The installation process was interrupted."))
         
         # Update buttons
         self.btn_cancel.set_visible(False)
         self.btn_continue.set_visible(True)
         self.btn_continue.set_sensitive(True)
-        self.btn_continue.set_label("Restart")
+        self.btn_continue.set_label(localization_manager.get_text("Restart"))
         
-        self._append_to_terminal("\nInstallation cancelled by user.", "info")
+        self._append_to_terminal(f"\n{localization_manager.get_text('Installation cancelled by user.')}", "info")
         
         return False
     

@@ -12,6 +12,8 @@ gi.require_version("Adw", "1")
 
 # Import GLib for the timer and Adw for the animation
 from gi.repository import Gtk, Adw, Gdk, GLib
+from simple_localization_manager import get_localization_manager
+_ = get_localization_manager().get_text
 
 # --- i18n Setup ---
 WIDGET_NAME = "linexin-installer-finish-widget"
@@ -26,6 +28,7 @@ _ = gettext.gettext
 class FinishWidget(Gtk.Box):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        get_localization_manager().register_widget(self)
 
         self.initial_animation_done = False
         self.animation_scheduled = False
@@ -71,7 +74,8 @@ class FinishWidget(Gtk.Box):
         # Subtitle with instructions
         self.subtitle_label = Gtk.Label()
         self.subtitle_label.add_css_class("finish_subtitle")
-        self.subtitle_label.set_markup('<span size="large">Everything is set up for you. Thank you for choosing LineXin.\nReboot the system to finish installation.</span>')
+        localization_manager = get_localization_manager()
+        self.subtitle_label.set_markup(f'<span size="large">{localization_manager.get_text("Everything is set up for you. Thank you for choosing Linexin.\nReboot the system to finish installation.")}</span>')
         self.subtitle_label.set_halign(Gtk.Align.CENTER)
         self.subtitle_label.set_valign(Gtk.Align.CENTER)
         self.subtitle_label.set_wrap(True)
