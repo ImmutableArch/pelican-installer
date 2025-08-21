@@ -43,7 +43,7 @@ class MainWindow(Adw.ApplicationWindow):
 
 
         super().__init__(application=app)
-        self.set_title("◉○○○○○○")
+        self.set_title("")
         self.set_default_size(1100, 800)
         self.progress_visible = False
         self.install_started = False
