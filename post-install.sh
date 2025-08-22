@@ -27,6 +27,40 @@ print_warning() {
     echo -e "${YELLOW}[WARNING]${NC} $1"
 }
 
+# Function to check internet connectivity
+check_internet() {
+    local test_urls=("8.8.8.8" "1.1.1.1" "archlinux.org")
+    
+    print_msg "Checking internet connectivity..."
+    
+    # Try ping first (fastest)
+    for url in "${test_urls[@]:0:2}"; do
+        if ping -c 1 -W 3 "$url" &>/dev/null; then
+            print_msg "Internet connection detected via ping to $url"
+            return 0
+        fi
+    done
+    
+    # Try wget as backup
+    if command -v wget &>/dev/null; then
+        if wget --spider --timeout=5 -q "https://${test_urls[2]}" 2>/dev/null; then
+            print_msg "Internet connection detected via wget to ${test_urls[2]}"
+            return 0
+        fi
+    fi
+    
+    # Try curl as another backup
+    if command -v curl &>/dev/null; then
+        if curl --connect-timeout 5 -s "https://${test_urls[2]}" &>/dev/null; then
+            print_msg "Internet connection detected via curl to ${test_urls[2]}"
+            return 0
+        fi
+    fi
+    
+    print_warning "No internet connection detected"
+    return 1
+}
+
 # Check if running as root
 if [[ $EUID -ne 0 ]]; then
    print_error "This script must be run as root"
@@ -118,6 +152,7 @@ systemctl enable bluetooth 2>/dev/null || true
 
 # Move and configure system files
 mv /etc/skel/.zshrc_postinstall /etc/skel/.zshrc 2>/dev/null || true
+cp /usr/share/refind/icons/os_linexin.png /boot/vmlinuz-linux.png 2>/dev/null || true
 mv /etc/os-release /usr/lib/os-release 2>/dev/null || true
 ln -sf /usr/lib/os-release /etc/os-release 2>/dev/null || true
 mv /etc/mkinitcpio.d/linux-postinstall.preset /etc/mkinitcpio.d/linux.preset 2>/dev/null || true
@@ -150,19 +185,26 @@ dconf update 2>/dev/null || true
 amixer set 'Master' 100% 2>/dev/null || true
 alsactl store 2>/dev/null || true
 
-# Update system packages
+# Initialize pacman keys (always needed)
 rm -rf /etc/pacman.d/gnupg 2>/dev/null || true
 pacman-key --init 2>/dev/null || true
 pacman-key --populate archlinux 2>/dev/null || true
-pacman -Sy archlinux-keyring --noconfirm 2>/dev/null || true
-pacman -Syu --noconfirm 2>/dev/null || true
 
-# Remove specific packages
+# Remove specific packages (works offline since they're already installed)
 pacman -R totem --noconfirm 2>/dev/null || true
 pacman -R archinstall --noconfirm 2>/dev/null || true
 
+# Update system packages (only if internet is available)
+if check_internet; then
+    print_msg "Internet connection available, proceeding with package updates..."
+    pacman -Sy archlinux-keyring linux --noconfirm 2>/dev/null || true
+    pacman -Syu --noconfirm 2>/dev/null || true
+else
+    print_warning "No internet connection available, skipping package updates"
+    print_warning "You can run 'pacman -Syu' manually later when internet is available"
+fi
+
 # Regenerate initramfs
 mkinitcpio -P
-
 
 print_msg "Post-installation configuration completed successfully!"

@@ -380,53 +380,88 @@ class UserCreationWidget(Gtk.Box):
         
         # Check user password strength
         user_password = self.password_entry.get_text()
-        if user_password:
+        repeat_password = self.repeat_password_entry.get_text()
+        
+        if not user_password:
+            self.password_strength.set_text("")
+            self.validation_errors.add("no_password")
+            all_valid = False
+        else:
             strength_text, strength_level = self.check_password_strength(user_password)
             self.password_strength.set_markup(strength_text)
             if strength_level < 2:
                 self.validation_errors.add("weak_password")
                 all_valid = False
-        else:
-            self.password_strength.set_text("")
-            self.validation_errors.add("no_password")
-            all_valid = False
         
-        # Check user password match
-        repeat_password = self.repeat_password_entry.get_text()
-        if user_password and repeat_password and user_password != repeat_password:
-            self.password_match_error.set_text("Passwords do not match")
+        # Check user password match - FIXED LOGIC
+        if user_password and repeat_password:
+            if user_password != repeat_password:
+                self.password_match_error.set_text("Passwords do not match")
+                self.password_match_error.set_visible(True)
+                self.validation_errors.add("password_mismatch")
+                all_valid = False
+            else:
+                self.password_match_error.set_visible(False)
+        elif user_password and not repeat_password:
+            # User has entered password but not repeated it
+            self.password_match_error.set_text("Please repeat your password")
             self.password_match_error.set_visible(True)
-            self.validation_errors.add("password_mismatch")
+            self.validation_errors.add("password_not_repeated")
+            all_valid = False
+        elif not user_password and repeat_password:
+            # User has entered repeat password but not main password
+            self.password_match_error.set_text("Please enter your password first")
+            self.password_match_error.set_visible(True)
+            self.validation_errors.add("password_missing")
             all_valid = False
         else:
+            # Both fields are empty
             self.password_match_error.set_visible(False)
         
         # Validate root password if enabled
         if self.root_enabled:
             root_password = self.root_password_entry.get_text()
-            if root_password:
+            repeat_root_password = self.repeat_root_password_entry.get_text()
+            
+            if not root_password:
+                self.root_password_strength.set_text("")
+                self.validation_errors.add("no_root_password")
+                all_valid = False
+            else:
                 strength_text, strength_level = self.check_password_strength(root_password)
                 self.root_password_strength.set_markup(strength_text)
                 if strength_level < 2:
                     self.validation_errors.add("weak_root_password")
                     all_valid = False
-            else:
-                self.root_password_strength.set_text("")
-                self.validation_errors.add("no_root_password")
-                all_valid = False
             
-            # Check root password match
-            repeat_root_password = self.repeat_root_password_entry.get_text()
-            if root_password and repeat_root_password and root_password != repeat_root_password:
-                self.root_password_match_error.set_text("Root passwords do not match")
+            # Check root password match - FIXED LOGIC
+            if root_password and repeat_root_password:
+                if root_password != repeat_root_password:
+                    self.root_password_match_error.set_text("Root passwords do not match")
+                    self.root_password_match_error.set_visible(True)
+                    self.validation_errors.add("root_password_mismatch")
+                    all_valid = False
+                else:
+                    self.root_password_match_error.set_visible(False)
+            elif root_password and not repeat_root_password:
+                # User has entered root password but not repeated it
+                self.root_password_match_error.set_text("Please repeat your root password")
                 self.root_password_match_error.set_visible(True)
-                self.validation_errors.add("root_password_mismatch")
+                self.validation_errors.add("root_password_not_repeated")
+                all_valid = False
+            elif not root_password and repeat_root_password:
+                # User has entered repeat root password but not main root password
+                self.root_password_match_error.set_text("Please enter your root password first")
+                self.root_password_match_error.set_visible(True)
+                self.validation_errors.add("root_password_missing")
                 all_valid = False
             else:
+                # Both root password fields are empty
                 self.root_password_match_error.set_visible(False)
         
         # Check if required fields are filled
         if not self.fullname_entry.get_text():
+            self.validation_errors.add("no_fullname")
             all_valid = False
         
         self.btn_proceed.set_sensitive(all_valid)

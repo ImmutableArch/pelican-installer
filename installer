@@ -163,6 +163,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.user_creation_page.btn_back.connect("clicked", self.on_back_to_user_creation_page_clicked)
         self.user_creation_page.btn_proceed.connect("clicked", self.on_usercreation_continue_clicked)
 
+
     def on_installation_finished(self, widget):
         """Called when installation completes successfully"""
         print("Installation completed successfully - proceeding to finish page")

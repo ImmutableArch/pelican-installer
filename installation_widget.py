@@ -376,6 +376,16 @@ class InstallationWidget(Gtk.Box):
         ))
         
         # Post-installation cleanup and configuration steps
+
+
+        steps.append(InstallationStep(
+            label="Copying kernel",
+            command=["bash", "-c", "sudo cp -rf /run/archiso/bootmnt/arch/boot/x86_64/* /tmp/linexin_installer/root/boot"],
+            description="Ensuring kernel image is present on new rootfs in case of no internet",
+            weight=1.0,
+            critical=True
+        ))
+
         steps.append(InstallationStep(
             label="Removing wheel sudo configuration",
             command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "rm", "/etc/sudoers.d/g_wheel"],

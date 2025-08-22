@@ -480,6 +480,8 @@ class SimpleLocalizationManager(GObject.Object):
             "Checking for other systems installed and installing proper bootloader": "Checking for other systems installed and installing proper bootloader",
             "Unmounting filesystems": "Unmounting filesystems",
             "Safely unmounting all filesystems": "Safely unmounting all filesystems",
+            "Changing GNOME extensions settings to mirror look and feel of the selected desktop layout": "Changing GNOME extensions settings to mirror look and feel of the selected desktop layout",
+            "Setting up desktop layout": "Setting up desktop layout",
             
             # Finish Widget
             "Installation has finished successfully!": "Installation has finished successfully!",
@@ -821,6 +823,8 @@ class SimpleLocalizationManager(GObject.Object):
             "Checking for other systems installed and installing proper bootloader": "Sprawdzanie innych zainstalowanych systemów i instalowanie odpowiedniego bootloadera",
             "Unmounting filesystems": "Odmontowywanie systemów plików",
             "Safely unmounting all filesystems": "Bezpieczne odmontowywanie wszystkich systemów plików",
+            "Changing GNOME extensions settings to mirror look and feel of the selected desktop layout": "Zmienianie ustawień rozszerzeń GNOME, by oddawały wybrany motyw",
+            "Setting up desktop layout": "Ustawianie układu pulpitu",
             
             # Finish Widget
             "Installation has finished successfully!": "Instalacja zakończyła się pomyślnie!",
