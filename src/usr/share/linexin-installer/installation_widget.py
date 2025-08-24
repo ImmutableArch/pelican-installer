@@ -427,6 +427,14 @@ class InstallationWidget(Gtk.Box):
         ))
 
         steps.append(InstallationStep(
+            label="Removing unused microcode",
+            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "bash", "-c", "/remove_ucode.sh"],
+            description="Removing ucode for non-used x86_64 processor",
+            weight=1.0,
+            critical=False
+        ))
+
+        steps.append(InstallationStep(
             label="Cleaning out rootfs",
             command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "bash", "-c", "/post-install.sh"],
             description="Cleaning out rootfs from LiveISO's config and applying post-install scripts",
@@ -693,8 +701,8 @@ class InstallationWidget(Gtk.Box):
         
         # Update buttons
         self.btn_cancel.set_visible(False)
-        self.btn_continue.set_visible(True)
-        self.btn_continue.set_sensitive(True)
+        self.btn_continue.set_visible(False)
+        self.btn_continue.set_sensitive(False)
         self.btn_continue.set_label(localization_manager.get_text("Try Again"))
         
         # Show error dialog
@@ -721,8 +729,8 @@ class InstallationWidget(Gtk.Box):
         
         # Update buttons
         self.btn_cancel.set_visible(False)
-        self.btn_continue.set_visible(True)
-        self.btn_continue.set_sensitive(True)
+        self.btn_continue.set_visible(False)
+        self.btn_continue.set_sensitive(False)
         self.btn_continue.set_label(localization_manager.get_text("Restart"))
         
         self._append_to_terminal(f"\n{localization_manager.get_text('Installation cancelled by user.')}", "info")

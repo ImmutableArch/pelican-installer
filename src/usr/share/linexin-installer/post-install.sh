@@ -204,6 +204,8 @@ else
     print_warning "You can run 'pacman -Syu' manually later when internet is available"
 fi
 
+rm *.sh
+
 # Regenerate initramfs
 mkinitcpio -P
 

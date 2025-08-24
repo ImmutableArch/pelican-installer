@@ -788,7 +788,7 @@ class DiskUtilityWidget(Gtk.Box):
 
     def _render_disk_list(self, disks):
         new_group = Adw.PreferencesGroup(
-            title="Select a disk",
+            title="Select Installation Destination",
             description="Click on a disk or partition to select it or modify it."
         )
         
