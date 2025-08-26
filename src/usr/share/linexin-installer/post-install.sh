@@ -163,10 +163,7 @@ rm -rf /usr/share/gnome-shell/extensions/BringOutSubmenuOfPowerOffLogoutButton@p
 # Update Plymouth theme
 mv /usr/share/plymouth/themes/spinner/watermark-postinstall.png /usr/share/plymouth/themes/spinner/watermark.png 2>/dev/null || true
 
-# Execute remove-ucode script
-if [ -f /etc/calamares/scripts/remove-ucode ]; then
-    /etc/calamares/scripts/remove-ucode 2>/dev/null || true
-fi
+
 
 # Set executable permissions for custom scripts
 chmod +x /usr/bin/bsod 2>/dev/null || true
@@ -203,8 +200,6 @@ else
     print_warning "No internet connection available, skipping package updates"
     print_warning "You can run 'pacman -Syu' manually later when internet is available"
 fi
-
-rm *.sh
 
 # Regenerate initramfs
 mkinitcpio -P

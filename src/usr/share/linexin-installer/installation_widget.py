@@ -438,7 +438,7 @@ class InstallationWidget(Gtk.Box):
             label="Cleaning out rootfs",
             command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "bash", "-c", "/post-install.sh"],
             description="Cleaning out rootfs from LiveISO's config and applying post-install scripts",
-            weight=1.0,
+            weight=5.0,
             critical=False
         ))
 
@@ -446,13 +446,37 @@ class InstallationWidget(Gtk.Box):
             label="Installing bootloader",
             command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "bash", "-c", "/bootloader.sh"],
             description="Checking for other systems installed and installing proper bootloader",
-            weight=1.0,
+            weight=3.0,
             critical=False
         ))
         
         steps.append(InstallationStep(
+            label="Setting up Flatpak",
+            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "flatpak", "update", "--appstream"],
+            description="Installing Flatpak apps and support for AppImage",
+            weight=5.0,
+            critical=True
+        ))
+
+        steps.append(InstallationStep(
+            label="Installing Flatpak and AppImage support",
+            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "flatpak", "install", "app.zen_browser.zen", "io.github.Faugus.faugus-launcher", "it.mijorus.gearlever", "com.github.tchx84.Flatseal", "com.usebottles.bottles", "app.twintaillauncher.ttl", "com.heroicgameslauncher.hgl", "--assumeyes"],
+            description="Installing Flatpak apps and support for AppImage",
+            weight=5.0,
+            critical=False
+        ))
+
+        steps.append(InstallationStep(
+            label="Cleaning out rootfs",
+            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "bash", "rm", "*.sh"],
+            description="Checking for other systems installed and installing proper bootloader",
+            weight=1.0,
+            critical=False
+        ))
+
+        steps.append(InstallationStep(
             label="Unmounting filesystems",
-            command=["sudo", "bash", "-c", "umount -R /tmp/linexin_installer/root/boot && umount /tmp/linexin_installer/rootfs && umount /tmp/linexin_installer/rootfs"],
+            command=["sudo", "bash", "-c", "umount -R /tmp/linexin_installer/root/boot && umount /tmp/linexin_installer/root && umount /tmp/linexin_installer/rootfs"],
             description="Safely unmounting all filesystems",
             weight=0.5,
             critical=False

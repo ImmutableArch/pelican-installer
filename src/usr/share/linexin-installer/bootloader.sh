@@ -399,14 +399,14 @@ EOF
 timeout 5
 
 # Hide user interface elements
-hideui singleuser,hints,arrows,label,badges
+hideui singleuser,hints,arrows,badges,hidden_tags, label
 
 # Icon size
 big_icon_size 128
 small_icon_size 48
 
 # Default selection
-default_selection "Linexin"
+default_selection "vmlinuz-linux"
 
 # Scan for kernels
 scan_all_linux_kernels true
@@ -423,6 +423,9 @@ dont_scan_dirs ESP:/EFI/boot,ESP:/EFI/Boot
 
 # Extra kernel parameters
 extra_kernel_version_strings linux-lts,linux
+
+# Load rEFInd theme Regular
+include themes/refind-theme-regular/theme.conf
 EOF
     
     # Register rEFInd with EFI safely

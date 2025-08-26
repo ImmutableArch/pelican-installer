@@ -273,49 +273,62 @@ class UserCreationWidget(Gtk.Box):
         if not password:
             return "", ""
         
+        # Define translation keys as variables
+        at_least_8 = _("at least 8 characters")
+        lower_letters = _("lowercase letters")
+        upper_letters = _("uppercase letters")
+        numbers_text = _("numbers")
+        special_characters = _("special characters")
+        weak = _("Weak")
+        fair = _("Fair")
+        good = _("Good")
+        strong = _("Strong")
+        add_text = _("add")
+        
         strength = 0
         feedback = []
         
         if len(password) >= 8:
             strength += 1
         else:
-            feedback.append("at least 8 characters")
+            feedback.append(at_least_8)
         
         if re.search(r'[a-z]', password):
             strength += 1
         else:
-            feedback.append("lowercase letters")
+            feedback.append(lower_letters)
         
         if re.search(r'[A-Z]', password):
             strength += 1
         else:
-            feedback.append("uppercase letters")
+            feedback.append(upper_letters)
         
         if re.search(r'[0-9]', password):
             strength += 1
         else:
-            feedback.append("numbers")
+            feedback.append(numbers_text)
         
         if re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
             strength += 1
         else:
-            feedback.append("special characters")
+            feedback.append(special_characters)
         
         if strength <= 2:
             color = "red"
-            text = "Weak"
+            text = weak
         elif strength <= 3:
             color = "orange"
-            text = "Fair"
+            text = fair
         elif strength <= 4:
             color = "yellow"
-            text = "Good"
+            text = good
         else:
             color = "green"
-            text = "Strong"
+            text = strong
         
         if feedback and strength < 5:
-            text += f" (add {', '.join(feedback[:2])})"
+            feedback_list = ", ".join(feedback[:2])
+            text += f" ({add_text} {feedback_list})"
         
         return f'<span foreground="{color}">{text}</span>', strength
     
@@ -404,7 +417,7 @@ class UserCreationWidget(Gtk.Box):
                 self.password_match_error.set_visible(False)
         elif user_password and not repeat_password:
             # User has entered password but not repeated it
-            self.password_match_error.set_text("Please repeat your password")
+            self.password_match_error.set_text("Repeat Password")
             self.password_match_error.set_visible(True)
             self.validation_errors.add("password_not_repeated")
             all_valid = False

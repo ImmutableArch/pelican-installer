@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 
+
 import gi
 import json
 import os
 import weakref
 import importlib
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+
 from pathlib import Path
 from gi.repository import GObject, Gtk, Adw
 
@@ -46,6 +51,9 @@ class SimpleLocalizationManager(GObject.Object):
         # Patch Adw.MessageDialog to auto-translate
         self.patch_message_dialog()
         self.patch_preferences_group()
+        self.patch_revealer()
+        self.patch_clamp()
+        self.patch_label()
 
     def _remember_original(self, widget, field, current_value):
         """Cache the first-seen (English) value for a widget's field and return it.
@@ -113,6 +121,80 @@ class SimpleLocalizationManager(GObject.Object):
         except Exception as e:
             print(f"Error translating GTK dialog: {e}")        
     
+    def patch_label(self):
+        """Monkey-patch Gtk.Label to auto-translate text and markup"""
+        original_init = Gtk.Label.__init__
+        original_set_text = Gtk.Label.set_text
+        original_set_markup = Gtk.Label.set_markup
+        original_set_tooltip_text = Gtk.Label.set_tooltip_text
+        
+        def patched_init(label_self, **kwargs):
+            # Call original init
+            original_init(label_self, **kwargs)
+            
+            # Auto-translate if text was provided in kwargs
+            if 'label' in kwargs:
+                label_self.set_text(kwargs['label'])
+            if 'tooltip_text' in kwargs:
+                label_self.set_tooltip_text(kwargs['tooltip_text'])
+        
+        def patched_set_text(label_self, text):
+            if text:
+                text = self.get_text(text)
+            original_set_text(label_self, text)
+        
+        def patched_set_markup(label_self, markup):
+            if markup:
+                # Extract text from markup and translate it
+                import re
+                # Simple regex to extract text content from markup
+                text_matches = re.findall(r'>([^<]+)<', markup)
+                for original_text in text_matches:
+                    if original_text.strip():
+                        translated_text = self.get_text(original_text.strip())
+                        if translated_text != original_text.strip():
+                            markup = markup.replace(original_text, translated_text)
+                
+                # Also handle text that might be outside tags
+                if '>' not in markup or '<' not in markup:
+                    markup = self.get_text(markup)
+            original_set_markup(label_self, markup)
+        
+        def patched_set_tooltip_text(label_self, text):
+            if text:
+                text = self.get_text(text)
+            original_set_tooltip_text(label_self, text)
+        
+        # Apply patches
+        Gtk.Label.__init__ = patched_init
+        Gtk.Label.set_text = patched_set_text
+        Gtk.Label.set_markup = patched_set_markup
+        Gtk.Label.set_tooltip_text = patched_set_tooltip_text
+
+    def patch_revealer(self):
+        """Monkey-patch Gtk.Revealer for any tooltip text"""
+        original_set_tooltip_text = Gtk.Revealer.set_tooltip_text
+        
+        def patched_set_tooltip_text(revealer_self, text):
+            if text:
+                text = self.get_text(text)
+            original_set_tooltip_text(revealer_self, text)
+        
+        # Apply patch
+        Gtk.Revealer.set_tooltip_text = patched_set_tooltip_text
+
+    def patch_clamp(self):
+        """Monkey-patch Adw.Clamp for any tooltip text"""
+        original_set_tooltip_text = Adw.Clamp.set_tooltip_text
+        
+        def patched_set_tooltip_text(clamp_self, text):
+            if text:
+                text = self.get_text(text)
+            original_set_tooltip_text(clamp_self, text)
+        
+        # Apply patch
+        Adw.Clamp.set_tooltip_text = patched_set_tooltip_text
+
     def patch_preferences_group(self):
         """Monkey-patch Adw.PreferencesGroup to auto-translate on creation"""
         original_init = Adw.PreferencesGroup.__init__
