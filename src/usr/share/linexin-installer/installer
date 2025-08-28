@@ -53,6 +53,9 @@ class MainWindow(Adw.ApplicationWindow):
         self.error_message = None
         self.caro = 4
 
+        # Connect the close request signal
+        self.connect("close-request", self.on_close_request)
+
         # --- Main Layout Changes ---
         top_level_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.set_content(top_level_box)
@@ -321,7 +324,58 @@ class MainWindow(Adw.ApplicationWindow):
             # You might want to show an error dialog here instead of silently failing
 
         
-
+    def on_close_request(self, window):
+        """Handle application close request - unmount directories before closing"""
+        print("Application is closing, attempting to unmount directories...")
+        
+        # List of directories to unmount (in order)
+        mount_points = [
+            "/tmp/linexin_installer/root/boot",
+            "/tmp/linexin_installer/root",
+            "/tmp/linexin_installer/rootfs"
+        ]
+        
+        for mount_point in mount_points:
+            try:
+                # Check if the directory exists and is mounted
+                if os.path.exists(mount_point):
+                    print(f"Attempting to unmount {mount_point}...")
+                    result = subprocess.run(
+                        ["umount", "-R", mount_point], 
+                        capture_output=True, 
+                        text=True, 
+                        timeout=10
+                    )
+                    
+                    if result.returncode == 0:
+                        print(f"Successfully unmounted {mount_point}")
+                    else:
+                        print(f"Failed to unmount {mount_point}: {result.stderr}")
+                        # Try a lazy unmount as fallback
+                        try:
+                            fallback_result = subprocess.run(
+                                ["umount", "-l", mount_point], 
+                                capture_output=True, 
+                                text=True, 
+                                timeout=5
+                            )
+                            if fallback_result.returncode == 0:
+                                print(f"Successfully lazy-unmounted {mount_point}")
+                            else:
+                                print(f"Lazy unmount also failed for {mount_point}: {fallback_result.stderr}")
+                        except Exception as e:
+                            print(f"Exception during lazy unmount of {mount_point}: {e}")
+                else:
+                    print(f"Mount point {mount_point} does not exist, skipping...")
+                    
+            except subprocess.TimeoutExpired:
+                print(f"Timeout while trying to unmount {mount_point}")
+            except Exception as e:
+                print(f"Exception while trying to unmount {mount_point}: {e}")
+        
+        print("Unmount operations completed, closing application.")
+        # Return False to allow the window to close
+        return False    
 
 
 class Installer(Adw.Application):

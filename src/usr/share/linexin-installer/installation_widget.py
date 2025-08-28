@@ -468,8 +468,8 @@ class InstallationWidget(Gtk.Box):
 
         steps.append(InstallationStep(
             label="Cleaning out rootfs",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "bash", "rm", "*.sh"],
-            description="Checking for other systems installed and installing proper bootloader",
+            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "rm", "/*.sh"],
+            description="Cleaning out rootfs from LiveISO's config and applying post-install scripts",
             weight=1.0,
             critical=False
         ))
