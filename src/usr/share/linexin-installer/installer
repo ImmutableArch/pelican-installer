@@ -305,7 +305,7 @@ class MainWindow(Adw.ApplicationWindow):
             print(f"Created config directory: {config_dir}")
             
             # Copy files if they exist
-            files_to_copy = ["bootloader.sh", "post-install.sh"]
+            files_to_copy = ["bootloader.sh", "post-install.sh", "remove_gpu.sh", "remove_ucode.sh"]
             for filename in files_to_copy:
                 source_path = os.path.join(app_dir, filename)
                 dest_path = os.path.join(config_dir, filename)

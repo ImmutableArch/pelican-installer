@@ -358,5 +358,14 @@ translations = {
             "Installing Flatpak apps and support for AppImage": "Установка приложений Flatpak и поддержки AppImage",
             "Setting up Flatpak": "Настройка Flatpak",
             "Install on free space": "Установить на свободном месте",
-            "Use available free space on disk without removing existing data": "Использовать доступное свободное место на диске без удаления существующих данных"
+            "Use available free space on disk without removing existing data": "Использовать доступное свободное место на диске без удаления существующих данных",
+            "Available free space: 40 GB on /dev/sda": "Доступное свободное место: 40 ГБ на /dev/sda",
+            "Available free space:": "Доступное свободное место:",
+            "Will use in": "Будет использовано в",
+            "free space:": "свободного места:",
+            "boot partition": "загрузочный раздел",
+            "root partition": "корневой раздел",
+            "Linux will be automatically configured with:": "Linux будет автоматически настроен с:",
+            "Boot partition (if UEFI mode)": "Загрузочный раздел (в режиме UEFI)",
+            "Root partition with remaining space": "Корневой раздел с оставшимся местом"
 }

@@ -359,5 +359,13 @@ translations = {
             "Installing Flatpak apps and support for AppImage": "Instalando aplicaciones Flatpak y soporte para AppImage",
             "Setting up Flatpak": "Configurando Flatpak",
             "Install on free space": "Instalar en espacio libre",
-            "Use available free space on disk without removing existing data": "Usar el espacio libre disponible en disco sin eliminar datos existentes"
+            "Use available free space on disk without removing existing data": "Usar el espacio libre disponible en disco sin eliminar datos existentes",
+            "Available free space:": "Espacio libre disponible:",
+            "Will use in": "Usará en",
+            "free space:": "de espacio libre:",
+            "boot partition": "partición de arranque",
+            "root partition": "partición raíz",
+            "Linux will be automatically configured with:": "Linux se configurará automáticamente con:",
+            "Boot partition (if UEFI mode)": "Partición de arranque (en modo UEFI)",
+            "Root partition with remaining space": "Partición raíz con el espacio restante"
 }

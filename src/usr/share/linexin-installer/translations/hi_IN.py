@@ -358,5 +358,14 @@ translations = {
             "Installing Flatpak apps and support for AppImage": "Flatpak ऐप्स और AppImage समर्थन स्थापित करना",
             "Setting up Flatpak": "Flatpak सेटअप करना",
             "Install on free space": "खाली स्थान पर स्थापित करें",
-            "Use available free space on disk without removing existing data": "मौजूदा डेटा को हटाए बिना डिस्क पर उपलब्ध खाली स्थान का उपयोग करें"
+            "Use available free space on disk without removing existing data": "मौजूदा डेटा को हटाए बिना डिस्क पर उपलब्ध खाली स्थान का उपयोग करें",
+            "Available free space: 40 GB on /dev/sda": "उपलब्ध खाली स्थान: /dev/sda पर 40 GB",
+            "Available free space:": "उपलब्ध खाली स्थान:",
+            "Will use in": "में उपयोग करेगा",
+            "free space:": "खाली स्थान:",
+            "boot partition": "बूट पार्टिशन",
+            "root partition": "रूट पार्टिशन",
+            "Linux will be automatically configured with:": "Linux स्वचालित रूप से कॉन्फ़िगर किया जाएगा:",
+            "Boot partition (if UEFI mode)": "बूट पार्टिशन (यदि UEFI मोड में)",
+            "Root partition with remaining space": "शेष स्थान के साथ रूट पार्टिशन"
 }

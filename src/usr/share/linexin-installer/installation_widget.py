@@ -439,7 +439,7 @@ class InstallationWidget(Gtk.Box):
             command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "bash", "-c", "/post-install.sh"],
             description="Cleaning out rootfs from LiveISO's config and applying post-install scripts",
             weight=5.0,
-            critical=False
+            critical=True
         ))
 
         steps.append(InstallationStep(
@@ -451,11 +451,27 @@ class InstallationWidget(Gtk.Box):
         ))
         
         steps.append(InstallationStep(
+            label="Removing unused GPU drivers",
+            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "bash", "-c", "/remove_gpu.sh"],
+            description="Checking for other systems installed and installing proper bootloader",
+            weight=3.0,
+            critical=False
+        ))
+
+        steps.append(InstallationStep(
+            label="Removing unused microcode",
+            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "bash", "-c", "/remove_ucode.sh"],
+            description="Checking for other systems installed and installing proper bootloader",
+            weight=3.0,
+            critical=False
+        ))
+
+        steps.append(InstallationStep(
             label="Setting up Flatpak",
             command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "flatpak", "update", "--appstream"],
             description="Installing Flatpak apps and support for AppImage",
             weight=5.0,
-            critical=True
+            critical=False
         ))
 
         steps.append(InstallationStep(
@@ -468,7 +484,7 @@ class InstallationWidget(Gtk.Box):
 
         steps.append(InstallationStep(
             label="Cleaning out rootfs",
-            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "rm", "/*.sh"],
+            command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "bash", "-c", "rm /*.sh"],
             description="Cleaning out rootfs from LiveISO's config and applying post-install scripts",
             weight=1.0,
             critical=False

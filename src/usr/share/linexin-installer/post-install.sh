@@ -202,6 +202,8 @@ else
 fi
 
 # Regenerate initramfs
-mkinitcpio -P
+mkinitcpio -P 2>/dev/null || true
+
+pacman -R linexin-installer --noconfirm 2>/dev/null || true
 
 print_msg "Post-installation configuration completed successfully!"

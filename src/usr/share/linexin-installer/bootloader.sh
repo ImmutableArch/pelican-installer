@@ -1,40 +1,32 @@
 #!/bin/bash
 
-# Bootloader Configuration Script for Arch Linux
-# This script detects the system configuration and installs the appropriate bootloader
-# NOTE: This script should be run from within arch-chroot
-
-# Color codes for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+BLUE='\033[0;34m'
+NC='\033[0m'
 
-# Function to print colored output
 print_msg() {
-    echo -e "${GREEN}[INFO]${NC} $1"
+    echo -e "${GREEN}[INFO]${NC} $1" >&2
 }
 
 print_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
+    echo -e "${RED}[ERROR]${NC} $1" >&2
 }
 
 print_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
+    echo -e "${YELLOW}[WARNING]${NC} $1" >&2
 }
 
-# Check if running as root
-if [[ $EUID -ne 0 ]]; then
-   print_error "This script must be run as root"
-   exit 1
-fi
+print_debug() {
+    echo -e "${BLUE}[DEBUG]${NC} $1" >&2
+}
 
-# Detect ESP mount point
+[[ $EUID -ne 0 ]] && { print_error "This script must be run as root"; exit 1; }
+
 detect_esp() {
-    # Check common ESP mount points
     for esp_path in "/boot/efi" "/boot" "/efi"; do
         if mountpoint -q "$esp_path" 2>/dev/null; then
-            # Verify it's actually an ESP by checking for EFI directory or FAT filesystem
             if [ -d "$esp_path/EFI" ] || [ -w "$esp_path" ]; then
                 echo "$esp_path"
                 return 0
@@ -42,10 +34,8 @@ detect_esp() {
         fi
     done
     
-    # Fallback: look for FAT32 partitions that might be ESP
     local esp_part=$(lsblk -f | grep -E "(fat32|vfat)" | head -1 | awk '{print $1}')
     if [ -n "$esp_part" ]; then
-        # Default to /boot if ESP partition exists but not mounted properly
         echo "/boot"
         return 0
     fi
@@ -53,7 +43,6 @@ detect_esp() {
     return 1
 }
 
-# Detect boot mode (UEFI or Legacy)
 detect_boot_mode() {
     if [ -d /sys/firmware/efi/efivars ]; then
         echo "uefi"
@@ -62,153 +51,204 @@ detect_boot_mode() {
     fi
 }
 
-# Detect other operating systems with improved detection
 detect_other_os() {
-    local other_os_found=false
+    print_msg "═══════════════════════════════════════════"
+    print_msg "Starting OS Detection"
+    print_msg "═══════════════════════════════════════════"
     
-    # Redirect all diagnostic output to stderr so it doesn't interfere with return value
-    print_msg "Detecting other operating systems..." >&2
+    local current_root_device=$(df / | tail -1 | awk '{print $1}')
+    local current_root_uuid=$(blkid -s UUID -o value "$current_root_device" 2>/dev/null)
     
-    # Method 1: Check ESP for Windows Boot Manager (most reliable)
-    if [ "$BOOT_MODE" = "uefi" ] && [ -n "$ESP_PATH" ]; then
-        if [ -d "$ESP_PATH/EFI/Microsoft" ]; then
-            print_msg "Windows UEFI installation detected via ESP" >&2
-            other_os_found=true
-        fi
+    print_debug "Current root: $current_root_device (UUID: $current_root_uuid)"
+    
+    print_msg "Method 1: Checking all disk partitions..."
+    
+    local all_partitions=$(lsblk -rno NAME,TYPE | awk '$2=="part"{print "/dev/"$1}')
+    
+    for device in $all_partitions; do
+        [ "$device" = "$current_root_device" ] && continue
         
-        # Check for other Linux distros in ESP (exclude common system directories)
-        if [ -d "$ESP_PATH/EFI" ]; then
-            for dir in "$ESP_PATH/EFI"/*; do
-                if [ -d "$dir" ]; then
-                    local dirname=$(basename "$dir")
-                    case "$dirname" in
-                        ubuntu|debian|fedora|opensuse|manjaro|pop|elementary|mint|centos|rhel)
-                            print_msg "Linux distribution detected: $dirname" >&2
-                            other_os_found=true
-                            ;;
-                        # Ignore system directories and current installation
-                        BOOT|Boot|systemd|Linexin|tools|*)
-                            ;;
-                    esac
-                fi
-            done
-        fi
-    fi
-    
-    # Method 2: Check for NTFS partitions with actual Windows installation
-    if [ "$other_os_found" = "false" ]; then
-        local ntfs_parts=$(lsblk -no NAME,FSTYPE | grep -w ntfs | awk '{print $1}')
-        if [ -n "$ntfs_parts" ]; then
-            print_msg "NTFS partition(s) detected, verifying Windows installation..." >&2
-            for part in $ntfs_parts; do
-                local temp_mount="/tmp/os_check_$"
-                mkdir -p "$temp_mount" 2>/dev/null
-                if mount -t ntfs-3g -o ro "/dev/$part" "$temp_mount" 2>/dev/null; then
-                    # Check for actual Windows system directories (not just any NTFS partition)
-                    if [ -d "$temp_mount/Windows/System32" ] || \
-                       [ -d "$temp_mount/windows/system32" ] || \
-                       [ -f "$temp_mount/bootmgr" ] && [ -d "$temp_mount/Windows" ]; then
-                        print_msg "Windows installation confirmed on /dev/$part" >&2
-                        other_os_found=true
-                    else
-                        print_msg "NTFS partition /dev/$part does not contain Windows" >&2
-                    fi
-                    umount "$temp_mount" 2>/dev/null
-                else
-                    print_msg "Could not mount NTFS partition /dev/$part for verification" >&2
-                fi
-                rmdir "$temp_mount" 2>/dev/null
+        local fstype=$(blkid -s TYPE -o value "$device" 2>/dev/null)
+        local uuid=$(blkid -s UUID -o value "$device" 2>/dev/null)
+        
+        [ -z "$fstype" ] && continue
+        
+        print_debug "Checking $device ($fstype, UUID: $uuid)..."
+        
+        case "$fstype" in
+            ext4|ext3|ext2|btrfs|xfs|f2fs|jfs|reiserfs)
+                local temp_mount="/tmp/check_os_$$_$(basename $device)"
+                rm -rf "$temp_mount" 2>/dev/null
+                mkdir -p "$temp_mount"
                 
-                # Break early if Windows found
-                if [ "$other_os_found" = "true" ]; then
-                    break
-                fi
-            done
-        fi
-    fi
-    
-    # Method 3: Check EFI boot entries (only if no other OS found yet)
-    if [ "$other_os_found" = "false" ] && [ "$BOOT_MODE" = "uefi" ] && command -v efibootmgr &> /dev/null; then
-        local efi_entries=$(efibootmgr 2>/dev/null | grep -v "BootOrder\|BootCurrent\|Timeout\|BootNext")
-        if echo "$efi_entries" | grep -qi "windows\|microsoft"; then
-            print_msg "Windows detected via EFI boot entries" >&2
-            other_os_found=true
-        elif echo "$efi_entries" | grep -qi "ubuntu\|debian\|fedora\|opensuse\|centos\|rhel"; then
-            print_msg "Other Linux distribution detected via EFI boot entries" >&2
-            other_os_found=true
-        fi
-    fi
-    
-    # Method 4: Use os-prober as final verification (only if suspicious findings)
-    if [ "$other_os_found" = "true" ]; then
-        if ! command -v os-prober &> /dev/null; then
-            print_msg "Installing os-prober for verification..." >&2
-            pacman -S --noconfirm os-prober ntfs-3g >&2 2>/dev/null || true
-        fi
-        
-        # Run os-prober with timeout to verify findings
-        local os_prober_output=""
-        if command -v os-prober &> /dev/null; then
-            if command -v timeout &> /dev/null; then
-                os_prober_output=$(timeout 30 os-prober 2>/dev/null || echo "")
-            else
-                os_prober_output=$(os-prober 2>/dev/null || echo "")
-            fi
-            
-            if [ -n "$os_prober_output" ]; then
-                print_msg "os-prober found: $(echo "$os_prober_output" | wc -l) other OS(es)" >&2
-            else
-                print_msg "os-prober found no other operating systems" >&2
-                # If os-prober finds nothing, be more conservative
-                other_os_found=false
-            fi
-        fi
-    fi
-    
-    # Method 5: Check for other Linux installations (more conservative)
-    if [ "$other_os_found" = "false" ]; then
-        local current_root_uuid=$(findmnt -no UUID /)
-        local other_linux_found=false
-        
-        for part in $(lsblk -no UUID,FSTYPE | grep -E "ext4|btrfs|xfs" | awk '{print $1}'); do
-            if [ -n "$part" ] && [ "$part" != "$current_root_uuid" ]; then
-                local temp_mount="/tmp/os_check_$"
-                mkdir -p "$temp_mount" 2>/dev/null
-                if mount UUID="$part" "$temp_mount" 2>/dev/null; then
-                    # More specific checks for actual Linux installations
-                    if [ -f "$temp_mount/etc/os-release" ] && [ -d "$temp_mount/boot" ] && \
-                       [ -f "$temp_mount/boot/vmlinuz"* ] && [ "$temp_mount" != "/" ]; then
-                        local os_name=$(grep '^NAME=' "$temp_mount/etc/os-release" 2>/dev/null | cut -d'"' -f2)
-                        if [ -n "$os_name" ] && [ "$os_name" != "Linexin" ]; then
-                            print_msg "Additional Linux installation detected: $os_name" >&2
-                            other_linux_found=true
+                if mount -o ro "$device" "$temp_mount" 2>/dev/null; then
+                    local os_name=""
+                    local is_other_os=false
+                    
+                    if [ -f "$temp_mount/etc/manjaro-release" ]; then
+                        os_name="Manjaro Linux"
+                        is_other_os=true
+                    elif [ -f "$temp_mount/etc/os-release" ]; then
+                        local detected_name=$(grep '^NAME=' "$temp_mount/etc/os-release" 2>/dev/null | cut -d'"' -f2)
+                        local detected_id=$(grep '^ID=' "$temp_mount/etc/os-release" 2>/dev/null | cut -d'=' -f2 | tr -d '"')
+                        
+                        if [ -n "$detected_name" ]; then
+                            os_name="$detected_name"
+                            if [ "$uuid" != "$current_root_uuid" ] && ! echo "$detected_name" | grep -qi "linexin"; then
+                                is_other_os=true
+                            fi
+                        fi
+                    elif [ -f "$temp_mount/etc/lsb-release" ]; then
+                        local detected_name=$(grep '^DISTRIB_ID=' "$temp_mount/etc/lsb-release" 2>/dev/null | cut -d'=' -f2)
+                        if [ -n "$detected_name" ] && [ "$detected_name" != "Linexin" ]; then
+                            os_name="$detected_name"
+                            is_other_os=true
+                        fi
+                    elif [ -f "$temp_mount/etc/debian_version" ]; then
+                        os_name="Debian/Ubuntu"
+                        is_other_os=true
+                    elif [ -f "$temp_mount/etc/redhat-release" ]; then
+                        os_name="Red Hat/CentOS/Fedora"
+                        is_other_os=true
+                    elif [ -f "$temp_mount/etc/fedora-release" ]; then
+                        os_name="Fedora"
+                        is_other_os=true
+                    elif [ -f "$temp_mount/etc/gentoo-release" ]; then
+                        os_name="Gentoo"
+                        is_other_os=true
+                    elif [ -d "$temp_mount/boot" ] && [ -d "$temp_mount/usr" ] && [ -d "$temp_mount/etc" ]; then
+                        if ls "$temp_mount/boot/"vmlinuz* >/dev/null 2>&1 || \
+                           ls "$temp_mount/boot/"initrd* >/dev/null 2>&1 || \
+                           ls "$temp_mount/boot/"initramfs* >/dev/null 2>&1; then
+                            os_name="Generic Linux installation"
+                            is_other_os=true
                         fi
                     fi
+                    
+                    if [ "$is_other_os" = true ]; then
+                        print_msg "✓ FOUND LINUX: $os_name on $device"
+                        umount "$temp_mount" 2>/dev/null
+                        rm -rf "$temp_mount"
+                        echo "true"
+                        return 0
+                    fi
+                    
                     umount "$temp_mount" 2>/dev/null
                 fi
-                rmdir "$temp_mount" 2>/dev/null
-            fi
-        done
+                rm -rf "$temp_mount"
+                ;;
+                
+            ntfs)
+                local temp_mount="/tmp/check_win_$$_$(basename $device)"
+                rm -rf "$temp_mount" 2>/dev/null
+                mkdir -p "$temp_mount"
+                
+                if mount -t ntfs-3g -o ro "$device" "$temp_mount" 2>/dev/null || \
+                   mount -t ntfs -o ro "$device" "$temp_mount" 2>/dev/null; then
+                    if [ -d "$temp_mount/Windows" ] || [ -d "$temp_mount/windows" ] || \
+                       [ -f "$temp_mount/bootmgr" ] || [ -f "$temp_mount/ntldr" ]; then
+                        print_msg "✓ FOUND WINDOWS on $device"
+                        umount "$temp_mount" 2>/dev/null
+                        rm -rf "$temp_mount"
+                        echo "true"
+                        return 0
+                    fi
+                    umount "$temp_mount" 2>/dev/null
+                fi
+                rm -rf "$temp_mount"
+                ;;
+        esac
+    done
+    
+    if [ "$BOOT_MODE" = "uefi" ] && [ -n "$ESP_PATH" ] && [ -d "$ESP_PATH/EFI" ]; then
+        print_msg "Method 2: Checking ESP for bootloaders..."
         
-        other_os_found=$other_linux_found
+        for dir in "$ESP_PATH/EFI"/*; do
+            [ ! -d "$dir" ] && continue
+            local dirname=$(basename "$dir")
+            
+            case "$dirname" in
+                systemd|BOOT|Boot|refind|tools|Linexin)
+                    print_debug "Skipping system directory: $dirname"
+                    ;;
+                Microsoft|microsoft|Windows|windows)
+                    print_msg "✓ FOUND: Windows bootloader in ESP"
+                    echo "true"
+                    return 0
+                    ;;
+                ubuntu|Ubuntu|debian|Debian|manjaro|Manjaro|fedora|Fedora|opensuse|openSUSE|mint|Mint)
+                    print_msg "✓ FOUND: $dirname bootloader in ESP"
+                    echo "true"
+                    return 0
+                    ;;
+                *)
+                    if [ -f "$dir/grubx64.efi" ] || [ -f "$dir/shimx64.efi" ] || \
+                       [ -f "$dir/grub.efi" ] || [ -f "$dir/bootmgfw.efi" ]; then
+                        print_msg "✓ FOUND: $dirname bootloader in ESP"
+                        echo "true"
+                        return 0
+                    fi
+                    ;;
+            esac
+        done
     fi
     
-    # Return only the clean value
-    echo "$other_os_found"
+    if [ "$BOOT_MODE" = "uefi" ] && command -v efibootmgr &>/dev/null; then
+        print_msg "Method 3: Checking EFI entries..."
+        local efi_output=$(efibootmgr 2>/dev/null)
+        
+        if echo "$efi_output" | grep -qiE "Windows|Microsoft|Ubuntu|Manjaro|Debian|Fedora|openSUSE|Mint"; then
+            local non_linexin_entries=$(echo "$efi_output" | grep -iE "Windows|Microsoft|Ubuntu|Manjaro|Debian|Fedora|openSUSE|Mint" | grep -v -i "Linexin")
+            if [ -n "$non_linexin_entries" ]; then
+                local found_entry=$(echo "$non_linexin_entries" | head -1)
+                print_msg "✓ EFI entry FOUND: $found_entry"
+                echo "true"
+                return 0
+            fi
+        fi
+    fi
+    
+    if command -v os-prober &>/dev/null || pacman -S --noconfirm os-prober ntfs-3g &>/dev/null; then
+        if command -v os-prober &>/dev/null; then
+            print_msg "Method 4: Running os-prober..."
+            
+            echo 'GRUB_DISABLE_OS_PROBER=false' >> /etc/default/grub 2>/dev/null || true
+            
+            local prober_output=$(timeout 30 os-prober 2>/dev/null)
+            
+            if [ -n "$prober_output" ]; then
+                local temp_prober="/tmp/prober_$$"
+                echo "$prober_output" > "$temp_prober"
+                
+                while IFS=: read -r device name rest; do
+                    if [ "$device" != "$current_root_device" ] && [ -n "$name" ]; then
+                        print_msg "✓ os-prober FOUND: $name on $device"
+                        rm -f "$temp_prober"
+                        echo "true"
+                        return 0
+                    fi
+                done < "$temp_prober"
+                
+                rm -f "$temp_prober"
+            fi
+        fi
+    fi
+    
+    print_msg "═══════════════════════════════════════════"
+    print_msg "RESULT: No other OS detected"
+    print_msg "═══════════════════════════════════════════"
+    echo "false"
 }
 
-# Install and configure systemd-boot
 install_systemd_boot() {
     local esp_path=$1
-    print_msg "Installing systemd-boot with ESP at $esp_path..."
+    print_msg "Installing systemd-boot to $esp_path..."
     
-    # Install systemd-boot
     if ! bootctl --esp-path="$esp_path" install; then
         print_error "bootctl install failed"
-        exit 1
+        return 1
     fi
     
-    # Create loader configuration
     mkdir -p "$esp_path/loader"
     cat > "$esp_path/loader/loader.conf" <<EOF
 default  linexin.conf
@@ -217,9 +257,9 @@ console-mode max
 editor   no
 EOF
     
-    # Create boot entry
     mkdir -p "$esp_path/loader/entries"
     local root_uuid=$(findmnt -no UUID /)
+    
     cat > "$esp_path/loader/entries/linexin.conf" <<EOF
 title   Linexin
 linux   /vmlinuz-linux
@@ -227,163 +267,186 @@ initrd  /initramfs-linux.img
 options root=UUID=$root_uuid rw quiet splash
 EOF
     
-    # Create fallback entry
-    cat > "$esp_path/loader/entries/arch-fallback.conf" <<EOF
-title   Linexin (fallback initramfs)
+    cat > "$esp_path/loader/entries/linexin-fallback.conf" <<EOF
+title   Linexin (fallback)
 linux   /vmlinuz-linux
 initrd  /initramfs-linux-fallback.img
 options root=UUID=$root_uuid rw
 EOF
     
-    # Set up EFI boot entry safely
     local esp_device=$(findmnt -no SOURCE "$esp_path")
     if [ -n "$esp_device" ]; then
         local esp_part_num=$(echo "$esp_device" | grep -o '[0-9]*$')
         local esp_disk=$(echo "$esp_device" | sed 's/[0-9]*$//')
         
         if [ -n "$esp_part_num" ] && [ -n "$esp_disk" ]; then
-            if efibootmgr -c -d "$esp_disk" -p "$esp_part_num" -L "Linexin QuickBoot" -l "\\EFI\\systemd\\systemd-bootx64.efi" 2>/dev/null; then
-                local linux_boot=$(efibootmgr | grep "Linexin QuickBoot" | grep -o '^Boot[0-9A-F]\{4\}' | sed 's/Boot//' | head -1)
-                if [ -n "$linux_boot" ]; then
-                    local other_boots=$(efibootmgr | grep "BootOrder:" | cut -d: -f2 | tr -d ' ' | sed "s/$linux_boot,\?//g" | sed 's/,$//')
-                    efibootmgr -o "$linux_boot,$other_boots" 2>/dev/null || true
-                fi
+            efibootmgr -c -d "$esp_disk" -p "$esp_part_num" -L "Linexin" -l "\\EFI\\systemd\\systemd-bootx64.efi" 2>/dev/null || true
+            
+            local linux_boot=$(efibootmgr | grep "Linexin" | grep -o '^Boot[0-9A-F]\{4\}' | sed 's/Boot//' | head -1)
+            if [ -n "$linux_boot" ]; then
+                local other_boots=$(efibootmgr | grep "BootOrder:" | cut -d: -f2 | tr -d ' ' | sed "s/$linux_boot,\?//g" | sed 's/,$//')
+                efibootmgr -o "$linux_boot${other_boots:+,$other_boots}" 2>/dev/null || true
             fi
         fi
     fi
     
-    print_msg "systemd-boot installed and configured successfully"
+    print_msg "systemd-boot installed successfully"
+    return 0
 }
 
-# Install and configure GRUB
 install_grub() {
     local boot_mode=$1
     local esp_path=$2
-    print_msg "Installing GRUB for $boot_mode..."
+    print_msg "Installing GRUB for $boot_mode mode..."
     
-    # Install required packages
     if [ "$boot_mode" = "uefi" ]; then
-        pacman -S --noconfirm grub efibootmgr os-prober ntfs-3g
+        pacman -S --noconfirm grub efibootmgr os-prober ntfs-3g || return 1
         
-        # Install GRUB for UEFI with Linexin branding
         if ! grub-install --target=x86_64-efi --efi-directory="$esp_path" --bootloader-id=Linexin; then
             print_error "GRUB UEFI installation failed"
-            exit 1
+            return 1
         fi
     else
-        pacman -S --noconfirm grub os-prober ntfs-3g
+        pacman -S --noconfirm grub os-prober ntfs-3g || return 1
         
-        # Detect the disk where root is installed
         local root_device=$(findmnt -no SOURCE /)
-        local root_disk="/dev/$(lsblk -no PKNAME "$root_device" | head -1)"
+        print_debug "Root device: $root_device"
+        
+        local root_disk=""
+        if [[ "$root_device" =~ ^/dev/[a-z]+[0-9]+$ ]]; then
+            root_disk=$(echo "$root_device" | sed 's/[0-9]*$//')
+        elif [[ "$root_device" =~ ^/dev/nvme[0-9]+n[0-9]+p[0-9]+$ ]]; then
+            root_disk=$(echo "$root_device" | sed 's/p[0-9]*$//')
+        elif [[ "$root_device" =~ ^/dev/vd[a-z]+[0-9]+$ ]]; then
+            root_disk=$(echo "$root_device" | sed 's/[0-9]*$//')
+        else
+            local parent_name=$(lsblk -no PKNAME "$root_device" 2>/dev/null | head -1)
+            if [ -n "$parent_name" ]; then
+                root_disk="/dev/$parent_name"
+            else
+                print_error "Could not determine root disk from $root_device"
+                return 1
+            fi
+        fi
+        
+        print_debug "Detected root disk: $root_disk"
+        
+        if [ ! -b "$root_disk" ]; then
+            print_error "Root disk $root_disk is not a valid block device"
+            return 1
+        fi
         
         print_msg "Installing GRUB to $root_disk"
         if ! grub-install --target=i386-pc "$root_disk"; then
             print_error "GRUB Legacy installation failed"
-            exit 1
+            return 1
         fi
     fi
     
-    # Customize GRUB configuration
-    print_msg "Customizing GRUB configuration..."
+    [ -f /etc/default/grub ] && cp /etc/default/grub /etc/default/grub.bak
     
-    # Backup original GRUB config if it exists
-    if [ -f /etc/default/grub ]; then
-        cp /etc/default/grub /etc/default/grub.bak
-    fi
-    
-    # Create custom GRUB configuration
     cat > /etc/default/grub <<'EOF'
-# GRUB Configuration for Linexin
 GRUB_DEFAULT=0
 GRUB_TIMEOUT=5
 GRUB_DISTRIBUTOR="Linexin"
 GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"
 GRUB_CMDLINE_LINUX=""
-
-# Display settings
 GRUB_TERMINAL_INPUT=console
 GRUB_GFXMODE=auto
 GRUB_GFXPAYLOAD_LINUX=keep
 GRUB_DISABLE_RECOVERY=false
-
-# OS Prober for dual-boot
 GRUB_DISABLE_OS_PROBER=false
-
-# Theme and appearance
 GRUB_COLOR_NORMAL="light-blue/black"
 GRUB_COLOR_HIGHLIGHT="light-cyan/blue"
 EOF
     
-    # Modify lsb-release if it exists
-    if [ -f /etc/lsb-release ]; then
-        cp /etc/lsb-release /etc/lsb-release.bak
-        sed -i 's/DISTRIB_ID=.*/DISTRIB_ID=Linexin/' /etc/lsb-release
-        sed -i 's/DISTRIB_DESCRIPTION=.*/DISTRIB_DESCRIPTION="Linexin"/' /etc/lsb-release
-    else
-        # Create lsb-release for Linexin
-        cat > /etc/lsb-release <<'EOLSB'
+    cat > /etc/lsb-release <<'EOF'
 DISTRIB_ID=Linexin
 DISTRIB_RELEASE=rolling
 DISTRIB_DESCRIPTION="Linexin"
-EOLSB
+EOF
+    
+    print_msg "Cleaning up boot directory..."
+    find /boot -name "*.png" -delete 2>/dev/null || true
+    find "$esp_path" -name "*.png" -delete 2>/dev/null || true
+    
+    print_msg "Ensuring kernel files are accessible..."
+    
+    if [ ! -f "/boot/vmlinuz-linux" ]; then
+        print_error "Kernel file /boot/vmlinuz-linux not found!"
+        return 1
     fi
     
-    # Generate GRUB configuration
-    print_msg "Generating GRUB configuration..."
-    if ! grub-mkconfig -o /boot/grub/grub.cfg; then
-        print_error "GRUB configuration generation failed"
-        exit 1
+    if [ ! -f "/boot/initramfs-linux.img" ]; then
+        print_error "Initramfs file /boot/initramfs-linux.img not found!"
+        return 1
     fi
     
-    # Post-process grub.cfg to ensure Linexin naming
-    if [ -f /boot/grub/grub.cfg ]; then
-        sed -i 's/Arch Linux/Linexin/g' /boot/grub/grub.cfg
-        sed -i 's/menuentry '\''Arch'\''/menuentry '\''Linexin'\''/g' /boot/grub/grub.cfg
-        sed -i "s/menuentry \"Arch/menuentry \"Linexin/g" /boot/grub/grub.cfg
+    if [ "$boot_mode" = "uefi" ] && [ "$esp_path" != "/boot" ]; then
+        print_msg "Copying kernel files to ESP..."
+        cp /boot/vmlinuz-linux "$esp_path/" || { print_error "Failed to copy kernel to ESP"; return 1; }
+        cp /boot/initramfs-linux.img "$esp_path/" || { print_error "Failed to copy initramfs to ESP"; return 1; }
+        cp /boot/initramfs-linux-fallback.img "$esp_path/" 2>/dev/null || print_warning "Could not copy fallback initramfs to ESP"
     fi
     
-    print_msg "GRUB installed and configured successfully with Linexin branding"
+    print_msg "Clearing GRUB cache..."
+    rm -rf /boot/grub/grubenv /boot/grub/*.mod /boot/grub/fonts 2>/dev/null || true
+    
+    print_msg "Generating fresh GRUB configuration..."
+    export GRUB_DISABLE_OS_PROBER=false
+    grub-mkconfig -o /boot/grub/grub.cfg.new || { print_error "GRUB configuration generation failed"; return 1; }
+    
+    print_msg "Verifying and cleaning GRUB configuration..."
+    if grep -q "linux\.png\|initrd\.png" /boot/grub/grub.cfg.new; then
+        print_warning "Found .png references in GRUB config, fixing..."
+        sed -e 's/linux\.png/vmlinuz-linux/g' \
+            -e 's/initrd\.png/initramfs-linux.img/g' \
+            /boot/grub/grub.cfg.new > /boot/grub/grub.cfg.fixed
+        mv /boot/grub/grub.cfg.fixed /boot/grub/grub.cfg.new
+    fi
+    
+    sed -e 's/Arch Linux/Linexin/g' \
+        -e "s/menuentry 'Arch/menuentry 'Linexin/g" \
+        -e 's/menuentry "Arch/menuentry "Linexin/g' \
+        /boot/grub/grub.cfg.new > /boot/grub/grub.cfg
+    
+    rm -f /boot/grub/grub.cfg.new
+    
+    if ! grep -q "vmlinuz-linux" /boot/grub/grub.cfg; then
+        print_error "GRUB config does not contain proper kernel references"
+        print_error "Manual configuration may be required"
+        return 1
+    fi
+    
+    print_msg "GRUB installed successfully"
+    return 0
 }
 
-# Install and configure rEFInd
 install_refind() {
     local esp_path=$1
-    print_msg "Installing rEFInd with ESP at $esp_path..."
+    print_msg "Installing rEFInd to $esp_path..."
     
-    # Install rEFInd package
     if ! pacman -S --noconfirm refind; then
         print_error "Failed to install rEFInd package"
-        exit 1
+        return 1
     fi
     
-    # Manual rEFInd installation for arch-chroot environment
-    print_msg "Installing rEFInd files..."
-    
-    # Create necessary directories
-    mkdir -p "$esp_path/EFI/refind" || {
-        print_error "Failed to create rEFInd directory"
-        exit 1
-    }
+    print_msg "Creating rEFInd directories..."
+    mkdir -p "$esp_path/EFI/refind" || { print_error "Failed to create refind directory"; return 1; }
     mkdir -p "$esp_path/EFI/BOOT"
     
-    # Copy rEFInd files
     if [ -d /usr/share/refind ]; then
-        cp -r /usr/share/refind/* "$esp_path/EFI/refind/" || {
-            print_error "Failed to copy rEFInd files"
-            exit 1
-        }
+        print_msg "Copying rEFInd files..."
+        cp -r /usr/share/refind/* "$esp_path/EFI/refind/" || { print_error "Failed to copy rEFInd files"; return 1; }
     else
         print_error "rEFInd files not found in /usr/share/refind"
-        exit 1
+        return 1
     fi
     
-    # Copy the EFI binary as fallback bootloader
     if [ -f "$esp_path/EFI/refind/refind_x64.efi" ]; then
         cp "$esp_path/EFI/refind/refind_x64.efi" "$esp_path/EFI/BOOT/bootx64.efi" 2>/dev/null || true
     fi
     
-    # Create refind_linux.conf for kernel parameters
     local root_uuid=$(findmnt -no UUID /)
     cat > "$esp_path/refind_linux.conf" <<EOF
 "Boot Linexin"                 "root=UUID=$root_uuid rw quiet splash"
@@ -391,167 +454,143 @@ install_refind() {
 "Boot to single-user mode"     "root=UUID=$root_uuid rw single"
 EOF
     
-    # Create a basic refind.conf
     cat > "$esp_path/EFI/refind/refind.conf" <<'EOF'
-# rEFInd configuration for Linexin
+include themes/refind-theme-regular/theme.conf
 
-# Timeout in seconds
 timeout 5
-
-# Hide user interface elements
-hideui singleuser,hints,arrows,badges,hidden_tags, label
-
-# Icon size
+hideui singleuser,hints,arrows,badges,hidden_tags
 big_icon_size 128
 small_icon_size 48
-
-# Default selection
 default_selection "vmlinuz-linux"
-
-# Scan for kernels
 scan_all_linux_kernels true
 fold_linux_kernels true
-
-# Include Windows loaders
 windows_recovery_files LRS_ESP:/EFI/Microsoft/Boot/bootmgfw.efi
-
-# Scan options - UEFI only, no legacy BIOS scanning
 scanfor manual,internal,external,optical
-
-# Don't scan these directories
 dont_scan_dirs ESP:/EFI/boot,ESP:/EFI/Boot
-
-# Extra kernel parameters
 extra_kernel_version_strings linux-lts,linux
-
-# Load rEFInd theme Regular
-include themes/refind-theme-regular/theme.conf
+also_scan_dirs boot,EFI/manjaro,EFI/ubuntu,EFI/debian,EFI/fedora
 EOF
     
-    # Register rEFInd with EFI safely
     print_msg "Registering rEFInd with EFI..."
     local esp_device=$(findmnt -no SOURCE "$esp_path" 2>/dev/null)
     
-    if [ -z "$esp_device" ]; then
-        print_warning "Could not determine ESP device, skipping EFI registration"
-        print_msg "rEFInd installed successfully (manual EFI entry creation may be needed)"
-        return 0
-    fi
-    
-    local esp_part_num=$(echo "$esp_device" | grep -o '[0-9]*$')
-    local esp_disk=$(echo "$esp_device" | sed 's/[0-9]*$//')
-    
-    if [ -z "$esp_part_num" ] || [ -z "$esp_disk" ]; then
-        print_warning "Could not parse ESP device information, skipping EFI registration"
-        print_msg "rEFInd installed successfully (manual EFI entry creation may be needed)"
-        return 0
-    fi
-    
-    # Check if efibootmgr is working
-    if ! efibootmgr -v >/dev/null 2>&1; then
-        print_warning "EFI variables not accessible, skipping EFI boot entry creation"
-        print_msg "rEFInd installed successfully (will work as fallback bootloader)"
-        return 0
-    fi
-    
-    # Remove any existing rEFInd entries to prevent conflicts
-    efibootmgr 2>/dev/null | grep -i refind | grep -o '^Boot[0-9A-F]\{4\}' | sed 's/Boot//' | while read bootnum; do
-        efibootmgr -b "$bootnum" -B 2>/dev/null || true
-    done
-    
-    # Create new rEFInd entry with error handling
-    if efibootmgr -c -d "$esp_disk" -p "$esp_part_num" -L "rEFInd Boot Manager" -l "\\EFI\\refind\\refind_x64.efi" 2>/dev/null; then
-        print_msg "rEFInd EFI entry created successfully"
+    if [ -n "$esp_device" ]; then
+        local esp_part_num=$(echo "$esp_device" | grep -o '[0-9]*$')
+        local esp_disk=$(echo "$esp_device" | sed 's/[0-9]*$//')
         
-        # Set boot order to prioritize rEFInd
-        local refind_boot=$(efibootmgr 2>/dev/null | grep -E "rEFInd|Linexin" | grep -o '^Boot[0-9A-F]\{4\}' | sed 's/Boot//' | head -1)
-        if [ -n "$refind_boot" ]; then
-            local current_order=$(efibootmgr 2>/dev/null | grep "BootOrder:" | cut -d: -f2 | tr -d ' ')
-            local other_boots=$(echo "$current_order" | sed "s/$refind_boot,\?//g" | sed 's/,$//')
-            efibootmgr -o "$refind_boot${other_boots:+,$other_boots}" 2>/dev/null || true
+        if [ -n "$esp_part_num" ] && [ -n "$esp_disk" ]; then
+            if ! efibootmgr -v >/dev/null 2>&1; then
+                print_warning "EFI variables not accessible, rEFInd will work as fallback bootloader"
+            else
+                efibootmgr 2>/dev/null | grep -i refind | grep -o '^Boot[0-9A-F]\{4\}' | sed 's/Boot//' | while read bootnum; do
+                    efibootmgr -b "$bootnum" -B 2>/dev/null || true
+                done
+                
+                if efibootmgr -c -d "$esp_disk" -p "$esp_part_num" -L "rEFInd Boot Manager" -l "\\EFI\\refind\\refind_x64.efi" 2>/dev/null; then
+                    print_msg "rEFInd EFI entry created"
+                    
+                    local refind_boot=$(efibootmgr 2>/dev/null | grep -i "rEFInd" | grep -o '^Boot[0-9A-F]\{4\}' | sed 's/Boot//' | head -1)
+                    if [ -n "$refind_boot" ]; then
+                        local current_order=$(efibootmgr 2>/dev/null | grep "BootOrder:" | cut -d: -f2 | tr -d ' ')
+                        local other_boots=$(echo "$current_order" | sed "s/$refind_boot,\?//g" | sed 's/,$//')
+                        efibootmgr -o "$refind_boot${other_boots:+,$other_boots}" 2>/dev/null || true
+                    fi
+                else
+                    print_warning "Could not create EFI entry, but rEFInd is installed as fallback"
+                fi
+            fi
         fi
-    else
-        print_warning "Failed to create EFI boot entry, but rEFInd is installed and will work as fallback"
     fi
     
-    print_msg "rEFInd installed and configured successfully"
+    print_msg "rEFInd installed successfully"
+    return 0
 }
 
-# Main script execution
 main() {
-    print_msg "Starting bootloader configuration..."
-
-    # Ensure we're in a proper Arch environment
+    print_msg "Bootloader Configuration Script"
+    print_msg "═══════════════════════════════════════════"
+    
     if [ ! -f /etc/arch-release ]; then
-        print_warning "This doesn't appear to be an Arch Linux environment"
+        print_warning "This doesn't appear to be an Arch Linux system"
     fi
-
-    # Ensure initramfs exists before configuring bootloader
+    
     if [ ! -f "/boot/initramfs-linux.img" ]; then
-        print_warning "initramfs not found, generating it first..."
+        print_warning "initramfs not found, generating..."
         mkinitcpio -P
     fi
-
-    # Detect system configuration
-    local boot_mode
-    boot_mode=$(detect_boot_mode)
-    print_msg "Boot mode: $boot_mode"
-
-    # Detect ESP for UEFI systems
-    local esp_path=""
-    if [ "$boot_mode" = "uefi" ]; then
-        esp_path=$(detect_esp)
-        if [ $? -ne 0 ] || [ -z "$esp_path" ]; then
-            print_error "Could not detect ESP mount point for UEFI system"
-            print_error "Please ensure your ESP is mounted at /boot, /boot/efi, or /efi"
+    
+    BOOT_MODE=$(detect_boot_mode)
+    print_msg "Boot mode: $BOOT_MODE"
+    
+    ESP_PATH=""
+    if [ "$BOOT_MODE" = "uefi" ]; then
+        ESP_PATH=$(detect_esp)
+        if [ -z "$ESP_PATH" ]; then
+            print_error "Could not detect ESP mount point"
+            print_error "Please ensure ESP is mounted at /boot, /boot/efi, or /efi"
             exit 1
         fi
-        print_msg "ESP detected at: $esp_path"
-    fi
-
-    # Set global variables for detect_other_os function
-    BOOT_MODE="$boot_mode"
-    ESP_PATH="$esp_path"
-
-    # Detect other operating systems
-    local other_os
-    other_os=$(detect_other_os)
-
-    # Debug output to verify detection
-    if [ "$other_os" = "true" ]; then
-        print_msg "Multi-boot system confirmed (other OS detected)"
-    else
-        print_msg "Single OS system (no other OS detected)"
-    fi
-
-    # Decision matrix for bootloader selection
-    if [ "$other_os" = "true" ]; then
-        # Other OS found
-        if [ "$boot_mode" = "uefi" ]; then
-            # UEFI with other OS - use rEFInd for best multi-boot experience
-            print_msg "Multi-boot UEFI system detected - installing rEFInd"
-            install_refind "$esp_path"
-        else
-            # Legacy with other OS - use GRUB (only option for Legacy multi-boot)
-            print_msg "Multi-boot Legacy system detected - installing GRUB"
-            install_grub "$boot_mode" "$esp_path"
-        fi
-    else
-        # No other OS found
-        if [ "$boot_mode" = "uefi" ]; then
-            # UEFI without other OS - use systemd-boot (simpler and faster)
-            print_msg "Single OS UEFI system detected - installing systemd-boot"
-            install_systemd_boot "$esp_path"
-        else
-            # Legacy without other OS - use GRUB (only option for Legacy)
-            print_msg "Single OS Legacy system detected - installing GRUB"
-            install_grub "$boot_mode" "$esp_path"
+        print_msg "ESP: $ESP_PATH"
+        
+        if [ -d "$ESP_PATH/EFI" ]; then
+            print_msg "Current ESP contents:"
+            ls -la "$ESP_PATH/EFI/" 2>/dev/null | grep "^d" | awk '{print "  - "$9}' || true
         fi
     fi
-
-    print_msg "Bootloader configuration completed successfully!"
-    print_msg "Please reboot and verify that the bootloader appears correctly."
+    
+    if [ "$1" = "--debug" ] || [ "$DEBUG" = "1" ]; then
+        set -x
+        print_msg "DEBUG MODE ENABLED"
+    fi
+    
+    OTHER_OS=$(detect_other_os)
+    
+    print_debug "Detection result: OTHER_OS='$OTHER_OS'"
+    
+    if [ "$FORCE_REFIND" = "1" ] || [ "$FORCE_REFIND" = "true" ]; then
+        print_warning "FORCE_REFIND enabled - installing rEFInd"
+        OTHER_OS="true"
+    fi
+    
+    print_msg ""
+    print_msg "FINAL DECISION:"
+    print_msg "═══════════════════════════════════════════"
+    
+    if [ "$OTHER_OS" = "true" ]; then
+        print_msg ">>> INSTALLING rEFInd (multi-boot detected) <<<"
+        if [ "$BOOT_MODE" = "uefi" ]; then
+            if ! install_refind "$ESP_PATH"; then
+                print_error "rEFInd installation failed!"
+                exit 1
+            fi
+        else
+            print_msg ">>> INSTALLING GRUB (Legacy multi-boot) <<<"
+            if ! install_grub "$BOOT_MODE" "$ESP_PATH"; then
+                print_error "GRUB installation failed!"
+                exit 1
+            fi
+        fi
+    else
+        print_msg ">>> INSTALLING systemd-boot (single OS) <<<"
+        print_warning "To force rEFInd: FORCE_REFIND=1 $0"
+        print_warning "To enable debug: DEBUG=1 $0 or $0 --debug"
+        if [ "$BOOT_MODE" = "uefi" ]; then
+            if ! install_systemd_boot "$ESP_PATH"; then
+                print_error "systemd-boot installation failed!"
+                exit 1
+            fi
+        else
+            print_msg ">>> INSTALLING GRUB (Legacy single OS) <<<"
+            if ! install_grub "$BOOT_MODE" "$ESP_PATH"; then
+                print_error "GRUB installation failed!"
+                exit 1
+            fi
+        fi
+    fi
+    
+    print_msg "═══════════════════════════════════════════"
+    print_msg "BOOTLOADER INSTALLED SUCCESSFULLY!"
+    print_msg "Please reboot to test the new bootloader"
 }
 
-# Execute main function
 main "$@"

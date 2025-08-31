@@ -358,5 +358,14 @@ translations = {
             "Installing Flatpak apps and support for AppImage": "正在安装 Flatpak 应用程序和 AppImage 支持",
             "Setting up Flatpak": "正在设置 Flatpak",
             "Install on free space": "安装到可用空间",
-            "Use available free space on disk without removing existing data": "使用磁盘上的可用空间而不删除现有数据"
+            "Use available free space on disk without removing existing data": "使用磁盘上的可用空间而不删除现有数据",
+            "Available free space: 40 GB on /dev/sda": "可用空闲空间：/dev/sda 上的 40 GB",
+            "Available free space:": "可用空闲空间：",
+            "Will use in": "将在",
+            "free space:": "空闲空间中使用：",
+            "boot partition": "引导分区",
+            "root partition": "根分区",
+            "Linux will be automatically configured with:": "Linux 将自动配置为：",
+            "Boot partition (if UEFI mode)": "引导分区（如果是 UEFI 模式）",
+            "Root partition with remaining space": "具有剩余空间的根分区"
 }
