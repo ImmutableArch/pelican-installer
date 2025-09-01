@@ -368,5 +368,8 @@ translations = {
             "root partition": "Root-Partition",
             "Linux will be automatically configured with:": "Linux wird automatisch konfiguriert mit:",
             "Boot partition (if UEFI mode)": "Boot-Partition (im UEFI-Modus)",
-            "Root partition with remaining space": "Root-Partition mit verbleibendem Speicher"
+            "Root partition with remaining space": "Root-Partition mit verbleibendem Speicher",
+            "Install the system": "System installieren",
+            "Removing unused GPU drivers": "Entfernen ungenutzter GPU-Treiber",
+            "Removing unused microcode": "Entfernen ungenutzten Mikrocodes"
 }

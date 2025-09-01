@@ -367,5 +367,8 @@ translations = {
             "root partition": "रूट पार्टिशन",
             "Linux will be automatically configured with:": "Linux स्वचालित रूप से कॉन्फ़िगर किया जाएगा:",
             "Boot partition (if UEFI mode)": "बूट पार्टिशन (यदि UEFI मोड में)",
-            "Root partition with remaining space": "शेष स्थान के साथ रूट पार्टिशन"
+            "Root partition with remaining space": "शेष स्थान के साथ रूट पार्टिशन",
+            "Install the system": "सिस्टम इंस्टॉल करें",
+            "Removing unused GPU drivers": "अनुपयोगी GPU ड्राइवर हटाए जा रहे हैं",
+            "Removing unused microcode": "अनुपयोगी माइक्रोकोड हटाया जा रहा है"
 }

@@ -367,5 +367,8 @@ translations = {
             "root partition": "корневой раздел",
             "Linux will be automatically configured with:": "Linux будет автоматически настроен с:",
             "Boot partition (if UEFI mode)": "Загрузочный раздел (в режиме UEFI)",
-            "Root partition with remaining space": "Корневой раздел с оставшимся местом"
+            "Root partition with remaining space": "Корневой раздел с оставшимся местом",
+            "Install the system": "Установить систему",
+            "Removing unused GPU drivers": "Удаление неиспользуемых драйверов GPU",
+            "Removing unused microcode": "Удаление неиспользуемого микрокода"            
 }

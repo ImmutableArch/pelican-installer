@@ -245,7 +245,7 @@ class UserCreationWidget(Gtk.Box):
         self.btn_back.add_css_class('buttons_all')
         button_box.append(self.btn_back)
         
-        self.btn_proceed = Gtk.Button(label="Continue")
+        self.btn_proceed = Gtk.Button(label="Install the system")
         self.btn_proceed.add_css_class('suggested-action')
         self.btn_proceed.add_css_class('buttons_all')
         self.btn_proceed.set_sensitive(False)

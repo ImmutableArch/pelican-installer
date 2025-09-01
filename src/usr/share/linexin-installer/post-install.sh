@@ -156,6 +156,8 @@ cp /usr/share/refind/icons/os_linexin.png /boot/vmlinuz-linux.png 2>/dev/null ||
 mv /etc/os-release /usr/lib/os-release 2>/dev/null || true
 ln -sf /usr/lib/os-release /etc/os-release 2>/dev/null || true
 mv /etc/mkinitcpio.d/linux-postinstall.preset /etc/mkinitcpio.d/linux.preset 2>/dev/null || true
+mv /usr/share/pixmaps/archlinux-logo-text-dark-postinstall.svg /usr/share/pixmaps/archlinux-logo-text-dark.svg
+mv /usr/share/pixmaps/archlinux-logo-text-postinstall.svg /usr/share/pixmaps/archlinux-logo-text.svg
 
 # Remove specific GNOME extension
 rm -rf /usr/share/gnome-shell/extensions/BringOutSubmenuOfPowerOffLogoutButton@pratap.fastmail.fm 2>/dev/null || true

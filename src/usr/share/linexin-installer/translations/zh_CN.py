@@ -367,5 +367,8 @@ translations = {
             "root partition": "根分区",
             "Linux will be automatically configured with:": "Linux 将自动配置为：",
             "Boot partition (if UEFI mode)": "引导分区（如果是 UEFI 模式）",
-            "Root partition with remaining space": "具有剩余空间的根分区"
+            "Root partition with remaining space": "具有剩余空间的根分区",
+            "Install the system": "安装系统",
+            "Removing unused GPU drivers": "正在删除未使用的GPU驱动程序",
+            "Removing unused microcode": "正在删除未使用的微码"
 }

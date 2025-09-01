@@ -453,7 +453,7 @@ class InstallationWidget(Gtk.Box):
         steps.append(InstallationStep(
             label="Removing unused GPU drivers",
             command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "bash", "-c", "/remove_gpu.sh"],
-            description="Checking for other systems installed and installing proper bootloader",
+            description="Removing unused GPU drivers",
             weight=3.0,
             critical=False
         ))
@@ -461,7 +461,7 @@ class InstallationWidget(Gtk.Box):
         steps.append(InstallationStep(
             label="Removing unused microcode",
             command=["sudo", "arch-chroot", "/tmp/linexin_installer/root", "bash", "-c", "/remove_ucode.sh"],
-            description="Checking for other systems installed and installing proper bootloader",
+            description="Removing unused microcode",
             weight=3.0,
             critical=False
         ))
