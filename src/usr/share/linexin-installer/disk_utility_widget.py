@@ -974,6 +974,14 @@ class DiskUtilityWidget(Gtk.Box):
     def init_partition_config(self):
         """Initialize partition configuration - call this in widget __init__"""
         self._load_partition_config()
+        # Add Btrfs subvolume configuration
+        self.btrfs_subvolumes = {
+            '@': '/',
+            '@home': '/home',
+            '@var': '/var',
+            '@tmp': '/tmp',
+            '@snapshots': '/.snapshots'
+        }
 
     def on_remove_clicked(self, button):
         """Remove selected partition"""
@@ -1560,7 +1568,20 @@ class DiskUtilityWidget(Gtk.Box):
             if not hasattr(self, 'partition_config') or not self.partition_config:
                 fstab_content.append("# No partition configuration found")
             else:
-                # Get filesystem information for each configured partition
+                # Track which device is used for Btrfs root
+                btrfs_root_device = None
+                btrfs_root_uuid = None
+                
+                # First pass: identify Btrfs root device
+                for device, config in self.partition_config.items():
+                    if config.get('mountpoint') == '/':
+                        filesystem = self._get_filesystem_type(device)
+                        if filesystem == 'btrfs':
+                            btrfs_root_device = device
+                            btrfs_root_uuid = self._get_device_uuid(device)
+                            break
+                
+                # Generate fstab entries
                 for device, config in self.partition_config.items():
                     if 'mountpoint' not in config:
                         continue
@@ -1576,37 +1597,75 @@ class DiskUtilityWidget(Gtk.Box):
                     # Get UUID for more robust mounting
                     uuid = self._get_device_uuid(device)
                     
-                    # Determine options based on filesystem and boot flag
-                    if filesystem == "swap":
-                        options = "defaults"
-                        dump = "0"
-                        pass_num = "0"
-                    elif mountpoint == "/":
-                        options = "defaults"
-                        dump = "1"
-                        pass_num = "1"
-                    elif bootable and mountpoint == "/boot":
-                        options = "defaults"
-                        dump = "1" 
-                        pass_num = "2"
-                    else:
-                        options = "defaults"
-                        dump = "0"
-                        pass_num = "2"
-                    
-                    # Create fstab entry
-                    if uuid:
-                        device_identifier = f"UUID={uuid}"
-                    else:
-                        device_identifier = device
-                    
-                    # Format the line with proper spacing
-                    fstab_line = f"{device_identifier:<25} {mountpoint:<15} {filesystem:<7} {options:<15} {dump:<6} {pass_num}"
-                    fstab_content.append(fstab_line)
-                    
-                    # Add comment if bootable
-                    if bootable:
-                        fstab_content.append(f"# {device} is marked as bootable")
+                    # For Btrfs root partition, create subvolume entries
+                    if device == btrfs_root_device and filesystem == 'btrfs':
+                        # Create entries for each subvolume
+                        for subvol, mount in self.btrfs_subvolumes.items():
+                            if uuid:
+                                device_identifier = f"UUID={uuid}"
+                            else:
+                                device_identifier = device
+                            
+                            options = f"subvol={subvol},defaults,compress=zstd,noatime"
+                            
+                            if mount == "/":
+                                dump = "0"
+                                pass_num = "1"
+                            else:
+                                dump = "0"
+                                pass_num = "2"
+                            
+                            fstab_line = f"{device_identifier:<25} {mount:<15} {filesystem:<7} {options:<40} {dump:<6} {pass_num}"
+                            fstab_content.append(fstab_line)
+                        
+                        # Add comment about Btrfs subvolumes
+                        fstab_content.append(f"# {device} uses Btrfs subvolumes")
+                        
+                    # For non-Btrfs or non-root partitions
+                    elif filesystem != 'btrfs' or mountpoint != '/':
+                        # Standard handling for non-Btrfs filesystems
+                        if filesystem == "swap":
+                            options = "defaults"
+                            dump = "0"
+                            pass_num = "0"
+                        elif mountpoint == "/":
+                            options = "defaults"
+                            dump = "1"
+                            pass_num = "1"
+                        elif bootable and mountpoint == "/boot":
+                            options = "defaults"
+                            dump = "1" 
+                            pass_num = "2"
+                        else:
+                            options = "defaults"
+                            dump = "0"
+                            pass_num = "2"
+                        
+                        if uuid:
+                            device_identifier = f"UUID={uuid}"
+                        else:
+                            device_identifier = device
+                        
+                        fstab_line = f"{device_identifier:<25} {mountpoint:<15} {filesystem:<7} {options:<15} {dump:<6} {pass_num}"
+                        fstab_content.append(fstab_line)
+                        
+                        if bootable:
+                            fstab_content.append(f"# {device} is marked as bootable")
+            
+            # Create directory structure in /tmp/installer_config/etc/
+            etc_dir = "/tmp/installer_config/etc"
+            os.makedirs(etc_dir, exist_ok=True)
+            
+            # Save fstab to /tmp/installer_config/etc/fstab
+            fstab_path = os.path.join(etc_dir, "fstab")
+            
+            with open(fstab_path, 'w') as f:
+                f.write('\n'.join(fstab_content))
+            print(f"Generated fstab saved to: {fstab_path}")
+            
+        except Exception as e:
+            print(f"Error generating fstab: {e}")
+            self._show_error_dialog("Error", f"Failed to generate fstab: {str(e)}")
             
             # Create directory structure in /tmp/installer_config/etc/
             etc_dir = "/tmp/installer_config/etc"
@@ -1804,12 +1863,65 @@ class DiskUtilityWidget(Gtk.Box):
             progress_dialog.destroy()
             self._show_error_dialog("Error", f"Failed to format partition: {str(e)}")
 
+    def _create_btrfs_subvolumes(self, device):
+        """Create Btrfs subvolumes for a formatted Btrfs partition"""
+        try:
+            import tempfile
+            import time
+            
+            # Create temporary mount point
+            with tempfile.TemporaryDirectory() as tmpdir:
+                # Mount the Btrfs filesystem
+                cmd = ['sudo', 'mount', device, tmpdir]
+                process = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                if process.returncode != 0:
+                    raise Exception(f"Failed to mount Btrfs: {process.stderr}")
+                
+                try:
+                    # Create subvolumes
+                    for subvol in ['@', '@home', '@var', '@tmp', '@snapshots']:
+                        cmd = ['sudo', 'btrfs', 'subvolume', 'create', f"{tmpdir}/{subvol}"]
+                        process = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                        if process.returncode != 0:
+                            print(f"Warning: Failed to create subvolume {subvol}: {process.stderr}")
+                    
+                    # Set default subvolume to @
+                    cmd = ['sudo', 'btrfs', 'subvolume', 'list', tmpdir]
+                    process = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                    if process.returncode == 0:
+                        # Parse output to find @ subvolume ID
+                        for line in process.stdout.split('\n'):
+                            if ' path @' in line and ' path @' == line[line.find(' path '):]:
+                                subvol_id = line.split()[1]
+                                cmd = ['sudo', 'btrfs', 'subvolume', 'set-default', subvol_id, tmpdir]
+                                subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                                break
+                    
+                finally:
+                    # Unmount
+                    time.sleep(1)
+                    cmd = ['sudo', 'umount', tmpdir]
+                    subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                    
+        except Exception as e:
+            print(f"Error creating Btrfs subvolumes: {e}")
+
     def _format_partition_sync(self, device, filesystem):
         """Format a partition synchronously"""
         if filesystem == 'ext4':
             cmd = ['sudo', 'mkfs.ext4', '-F', device]
         elif filesystem == 'btrfs':
+            # Format as Btrfs
             cmd = ['sudo', 'mkfs.btrfs', '-f', device]
+            process = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            if process.returncode != 0:
+                raise Exception(f"Formatting failed: {process.stderr}")
+            
+            # Create Btrfs subvolumes if this is being set as root
+            if hasattr(self, 'partition_config') and device in self.partition_config:
+                if self.partition_config[device].get('mountpoint') == '/':
+                    self._create_btrfs_subvolumes(device)
+            return
         elif filesystem == 'ntfs':
             cmd = ['sudo', 'mkfs.ntfs', '-f', device]
         elif filesystem == 'fat32':
@@ -1834,6 +1946,18 @@ class DiskUtilityWidget(Gtk.Box):
             
             self.partition_config[self.selected_disk] = self.partition_config.get(self.selected_disk, {})
             self.partition_config[self.selected_disk]['mountpoint'] = mountpoint
+            
+            # Retroactively create Btrfs subvolumes if setting to root and filesystem is Btrfs
+            if mountpoint == '/' and self._get_filesystem_type(self.selected_disk) == 'btrfs':
+                try:
+                    self._create_btrfs_subvolumes(self.selected_disk)
+                    print(f"Retroactively created Btrfs subvolumes for {self.selected_disk} as root mountpoint.")
+                except Exception as subvol_error:
+                    print(f"Warning: Failed to create Btrfs subvolumes retroactively: {str(subvol_error)}")
+                    # Optionally show a dialog warning here
+                    self._show_info_dialog("Warning", 
+                                        f"Mountpoint set, but failed to create Btrfs subvolumes: {str(subvol_error)}\n\n"
+                                        f"You may need to create them manually using GParted.")
             
             # Save configuration and update /etc/fstab
             self._save_partition_config()

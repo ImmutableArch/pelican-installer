@@ -341,7 +341,7 @@ class MainWindow(Adw.ApplicationWindow):
                 if os.path.exists(mount_point):
                     print(f"Attempting to unmount {mount_point}...")
                     result = subprocess.run(
-                        ["umount", "-R", mount_point], 
+                        ["sudo", "umount", "-R", mount_point], 
                         capture_output=True, 
                         text=True, 
                         timeout=10
@@ -354,7 +354,7 @@ class MainWindow(Adw.ApplicationWindow):
                         # Try a lazy unmount as fallback
                         try:
                             fallback_result = subprocess.run(
-                                ["umount", "-l", mount_point], 
+                                ["sudo", "umount", "-l", mount_point], 
                                 capture_output=True, 
                                 text=True, 
                                 timeout=5
