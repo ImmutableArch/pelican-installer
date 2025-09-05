@@ -207,5 +207,6 @@ fi
 mkinitcpio -P 2>/dev/null || true
 
 pacman -R linexin-installer --noconfirm 2>/dev/null || true
+pacman -R gparted --noconfirm 2>/dev/null || true
 
 print_msg "Post-installation configuration completed successfully!"

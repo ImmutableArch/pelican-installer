@@ -10,7 +10,6 @@ import os
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from disk_utils import DiskUtils
 from gi.repository import Gtk, Adw, Gio, Gdk, GLib, GObject
 from simple_localization_manager import get_localization_manager
 _ = get_localization_manager().get_text
@@ -230,8 +229,7 @@ class DiskUtilityWidget(Gtk.Box):
             if "Free space on" in self.selected_disk:
                 self.selected_disk = self.selected_disk.split("Free space on ")[-1].strip()
             
-            disk_info = DiskUtils.parse_disk_path(self.selected_disk)
-            base_disk = disk_info['base_disk'] if disk_info else self.selected_disk
+            base_disk = ''.join([c for c in self.selected_disk if not c.isdigit()])
             
             # If a whole disk is selected (type 0), use the format whole disk approach
             if hasattr(self, 'type') and (self.type == 0 or (self.type == 2 and "Free space on" in self.selected_disk)):
@@ -481,12 +479,11 @@ class DiskUtilityWidget(Gtk.Box):
             if boot_mode == "uefi":
                 # Find the two newest partitions for UEFI
                 if len(partition_nums) >= 2:
-                    if len(partition_nums) >= 2:
-                        boot_partition = DiskUtils.get_partition_path(base_disk, partition_nums[-2])
-                        root_partition = DiskUtils.get_partition_path(base_disk, partition_nums[-1])
-                    else:
-                        boot_partition = DiskUtils.get_partition_path(base_disk, 1)
-                        root_partition = DiskUtils.get_partition_path(base_disk, 2)
+                    boot_partition = f"{base_disk}{partition_nums[-2]}"
+                    root_partition = f"{base_disk}{partition_nums[-1]}"
+                else:
+                    boot_partition = f"{base_disk}1"
+                    root_partition = f"{base_disk}2"
                 
                 # Set boot flag for UEFI ESP
                 boot_num = ''.join(filter(str.isdigit, boot_partition.split('/')[-1]))
@@ -528,9 +525,9 @@ class DiskUtilityWidget(Gtk.Box):
             else:
                 # Find the newest partition for Legacy
                 if len(partition_nums) >= 1:
-                    root_partition = DiskUtils.get_partition_path(base_disk, partition_nums[-1])
+                    root_partition = f"{base_disk}{partition_nums[-1]}"
                 else:
-                    root_partition = DiskUtils.get_partition_path(base_disk, 1)
+                    root_partition = f"{base_disk}1"
                 
                 # Set boot flag for Legacy boot
                 root_num = ''.join(filter(str.isdigit, root_partition.split('/')[-1]))
@@ -1505,6 +1502,7 @@ class DiskUtilityWidget(Gtk.Box):
             if process.returncode != 0:
                 raise Exception(f"Failed to get partition info: {process.stderr}")
             
+            # Find the highest numbered partition
             lines = process.stdout.split('\n')
             partition_num = 0
             for line in lines:
@@ -1517,15 +1515,11 @@ class DiskUtilityWidget(Gtk.Box):
                             partition_num = max(partition_num, num)
                         except ValueError:
                             continue
-
+            
             if partition_num == 0:
                 raise Exception("Could not determine new partition number")
-
-            # Use DiskUtils to construct proper partition path
-            new_partition = DiskUtils.get_partition_path(self.selected_disk, partition_num)
-            if not new_partition:
-                # Fallback to old method if DiskUtils fails
-                new_partition = DiskUtils.get_partition_path(self.selected_disk, partition_num)
+            
+            new_partition = f"{self.selected_disk}{partition_num}"
             
             # Format if requested
             if filesystem != 'unformatted':
@@ -1816,12 +1810,12 @@ class DiskUtilityWidget(Gtk.Box):
             progress_dialog = self._show_progress_dialog("Removing Partition", f"Removing partition {self.selected_disk}...")
             
             # Extract partition number from device path
-            disk_info = DiskUtils.parse_disk_path(self.selected_disk)
-            if not disk_info or disk_info['partition_num'] is None:
+            partition_num = ''.join(filter(str.isdigit, self.selected_disk.split('/')[-1]))
+            if not partition_num:
                 raise Exception("Could not determine partition number")
-
-            partition_num = str(disk_info['partition_num'])
-            base_disk = disk_info['base_disk']
+            
+            # Get the base disk device
+            base_disk = ''.join([c for c in self.selected_disk if not c.isdigit()])
             
             # Remove the partition
             cmd = ['sudo', 'parted', '-s', base_disk, 'rm', partition_num]
@@ -1984,12 +1978,11 @@ class DiskUtilityWidget(Gtk.Box):
         try:
             progress_dialog = self._show_progress_dialog("Setting Boot Flag", f"Setting boot flag for {self.selected_disk}...")
             
-            disk_info = DiskUtils.parse_disk_path(self.selected_disk)
-            if not disk_info or disk_info['partition_num'] is None:
+            partition_num = ''.join(filter(str.isdigit, self.selected_disk.split('/')[-1]))
+            if not partition_num:
                 raise Exception("Could not determine partition number")
-
-            partition_num = str(disk_info['partition_num'])
-            base_disk = disk_info['base_disk']
+            
+            base_disk = ''.join([c for c in self.selected_disk if not c.isdigit()])
             
             flag_state = 'on' if enable_boot else 'off'
             cmd = ['sudo', 'parted', '-s', base_disk, 'set', partition_num, 'boot', flag_state]
