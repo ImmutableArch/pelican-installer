@@ -12,3 +12,6 @@ The Linexin Installer is a modern, user-friendly graphical installation tool for
     📊 Real-time Progress Tracking - Detailed logging and status updates
     🎨 Modern UI Design - Smooth animations and responsive layout
     🔧 Extensible Architecture - Easy to add custom widgets
+
+More information and documentation is present here:
+https://github.com/Petexy/linexin-installer/wiki
