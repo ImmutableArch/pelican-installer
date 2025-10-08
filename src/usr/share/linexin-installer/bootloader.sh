@@ -474,33 +474,87 @@ EOF
     print_msg "Registering rEFInd with EFI..."
     local esp_device=$(findmnt -no SOURCE "$esp_path" 2>/dev/null)
     
-    if [ -n "$esp_device" ]; then
-        local esp_part_num=$(echo "$esp_device" | grep -o '[0-9]*$')
-        local esp_disk=$(echo "$esp_device" | sed 's/[0-9]*$//')
+        if [ -z "$esp_device" ]; then
+            print_warning "Could not detect ESP device, rEFInd will work as fallback bootloader only"
+            print_warning "To manually create EFI entry, run:"
+            print_warning "  sudo efibootmgr --create --disk /dev/sdX --part N --label 'rEFInd' --loader '\\EFI\\refind\\refind_x64.efi'"
+            return 0
+        fi
         
-        if [ -n "$esp_part_num" ] && [ -n "$esp_disk" ]; then
-            if ! efibootmgr -v >/dev/null 2>&1; then
-                print_warning "EFI variables not accessible, rEFInd will work as fallback bootloader"
-            else
-                efibootmgr 2>/dev/null | grep -i refind | grep -o '^Boot[0-9A-F]\{4\}' | sed 's/Boot//' | while read bootnum; do
-                    efibootmgr -b "$bootnum" -B 2>/dev/null || true
-                done
+        print_debug "ESP device: $esp_device"
+        
+        local esp_disk=""
+        local esp_part_num=""
+        
+        if [[ "$esp_device" =~ ^/dev/nvme[0-9]+n[0-9]+p[0-9]+$ ]]; then
+            esp_disk=$(echo "$esp_device" | sed 's/p[0-9]*$//')
+            esp_part_num=$(echo "$esp_device" | grep -o '[0-9]*$')
+            print_debug "NVMe device detected: disk=$esp_disk part=$esp_part_num"
+        elif [[ "$esp_device" =~ ^/dev/mmcblk[0-9]+p[0-9]+$ ]]; then
+            esp_disk=$(echo "$esp_device" | sed 's/p[0-9]*$//')
+            esp_part_num=$(echo "$esp_device" | grep -o '[0-9]*$')
+            print_debug "MMC device detected: disk=$esp_disk part=$esp_part_num"
+        elif [[ "$esp_device" =~ ^/dev/[sh]d[a-z]+[0-9]+$ ]]; then
+            esp_disk=$(echo "$esp_device" | sed 's/[0-9]*$//')
+            esp_part_num=$(echo "$esp_device" | grep -o '[0-9]*$')
+            print_debug "SATA/SCSI device detected: disk=$esp_disk part=$esp_part_num"
+        else
+            print_warning "Unsupported device type: $esp_device"
+            print_warning "Manual EFI entry creation required:"
+            print_warning "  sudo efibootmgr --create --disk <disk> --part <num> --label 'rEFInd' --loader '\\EFI\\refind\\refind_x64.efi'"
+            return 0
+        fi
+        
+        if [ -z "$esp_disk" ] || [ -z "$esp_part_num" ]; then
+            print_error "Could not parse disk ($esp_disk) and partition ($esp_part_num) from $esp_device"
+            print_warning "Manual EFI entry creation required"
+            return 0
+        fi
+        
+        if ! efibootmgr -v >/dev/null 2>&1; then
+            print_warning "EFI variables not accessible"
+            print_warning "rEFInd will work as fallback bootloader, or create entry manually:"
+            print_warning "  sudo efibootmgr --create --disk $esp_disk --part $esp_part_num --label 'rEFInd' --loader '\\EFI\\refind\\refind_x64.efi'"
+            return 0
+        fi
+        
+        print_msg "Removing old rEFInd entries..."
+        efibootmgr 2>/dev/null | grep -i refind | grep -o '^Boot[0-9A-F]\{4\}' | sed 's/Boot//' | while read bootnum; do
+            print_debug "Removing boot entry $bootnum"
+            efibootmgr -b "$bootnum" -B 2>/dev/null || true
+        done
+        
+        print_msg "Creating rEFInd EFI boot entry..."
+        print_debug "Command: efibootmgr --create --disk $esp_disk --part $esp_part_num --label 'rEFInd' --loader '\\EFI\\refind\\refind_x64.efi'"
+        
+        if efibootmgr --create --disk "$esp_disk" --part "$esp_part_num" --label "rEFInd" --loader "\\EFI\\refind\\refind_x64.efi" 2>&1 | tee /tmp/efibootmgr.log; then
+            print_msg "✓ rEFInd EFI entry created successfully"
+            
+            print_msg "Setting rEFInd as first boot option..."
+            local refind_boot=$(efibootmgr 2>/dev/null | grep -i "rEFInd" | grep -o '^Boot[0-9A-F]\{4\}' | sed 's/Boot//' | head -1)
+            if [ -n "$refind_boot" ]; then
+                print_debug "rEFInd boot number: $refind_boot"
+                local current_order=$(efibootmgr 2>/dev/null | grep "BootOrder:" | cut -d: -f2 | tr -d ' ')
+                local other_boots=$(echo "$current_order" | sed "s/$refind_boot,\?//g" | sed 's/,$//' | sed 's/^,//')
                 
-                if efibootmgr -c -d "$esp_disk" -p "$esp_part_num" -L "rEFInd Boot Manager" -l "\\EFI\\refind\\refind_x64.efi" 2>/dev/null; then
-                    print_msg "rEFInd EFI entry created"
-                    
-                    local refind_boot=$(efibootmgr 2>/dev/null | grep -i "rEFInd" | grep -o '^Boot[0-9A-F]\{4\}' | sed 's/Boot//' | head -1)
-                    if [ -n "$refind_boot" ]; then
-                        local current_order=$(efibootmgr 2>/dev/null | grep "BootOrder:" | cut -d: -f2 | tr -d ' ')
-                        local other_boots=$(echo "$current_order" | sed "s/$refind_boot,\?//g" | sed 's/,$//')
-                        efibootmgr -o "$refind_boot${other_boots:+,$other_boots}" 2>/dev/null || true
-                    fi
+                if efibootmgr -o "$refind_boot${other_boots:+,$other_boots}" 2>/dev/null; then
+                    print_msg "✓ Boot order updated: rEFInd is now first"
                 else
-                    print_warning "Could not create EFI entry, but rEFInd is installed as fallback"
+                    print_warning "Could not update boot order, but entry was created"
                 fi
             fi
+            
+            print_msg ""
+            print_msg "Current EFI boot entries:"
+            efibootmgr 2>/dev/null | grep -E "(Boot|BootOrder)" || true
+        else
+            print_error "Failed to create rEFInd EFI entry"
+            print_error "See /tmp/efibootmgr.log for details"
+            print_warning ""
+            print_warning "Manual fix required - run this command:"
+            print_warning "  sudo efibootmgr --create --disk $esp_disk --part $esp_part_num --label 'rEFInd' --loader '\\EFI\\refind\\refind_x64.efi'"
+            return 1
         fi
-    fi
     
     print_msg "rEFInd installed successfully"
     return 0
