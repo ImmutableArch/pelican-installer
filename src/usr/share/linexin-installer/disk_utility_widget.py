@@ -2105,14 +2105,14 @@ class DiskUtilityWidget(Gtk.Box):
                 time.sleep(2)
 
                 # Step 5: Format EFI partition as FAT32
-                boot_partition = f"{self.selected_disk}1"
+                boot_partition = DiskUtils.get_partition_path(self.selected_disk, 1)
                 cmd = ['sudo', 'mkfs.fat', '-F', '32', boot_partition]
                 process = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
                 if process.returncode != 0:
                     raise Exception(f"Failed to format EFI partition: {process.stderr}")
 
                 # Step 6: Format root partition as ext4
-                root_partition = f"{self.selected_disk}2"
+                root_partition = DiskUtils.get_partition_path(self.selected_disk, 2)
                 cmd = ['sudo', 'mkfs.ext4', '-F', root_partition]
                 process = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
                 if process.returncode != 0:

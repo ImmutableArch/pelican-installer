@@ -611,7 +611,7 @@ echo "Configuring hostname..."
 echo "Setting hostname to: $HOSTNAME"
 
 # Set hostname
-hostnamectl set-hostname "$HOSTNAME" 2>/dev/null || echo "$HOSTNAME" > /etc/hostname
+echo "$HOSTNAME" > /etc/hostname
 
 # Update /etc/hosts
 echo "Updating /etc/hosts..."
