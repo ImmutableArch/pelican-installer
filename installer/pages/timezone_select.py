@@ -471,6 +471,7 @@ map.on('click', function(e) {{
             if hasattr(self.app, "selected_timezone"):
                 self.app.selected_timezone = self.selected_timezone
             print(f"[TimezoneSelectPage] Proceeding with timezone: {self.selected_timezone}")
+            self.app.go_to("keyboard")
         else:
             print("[TimezoneSelectPage] No timezone selected")
 
