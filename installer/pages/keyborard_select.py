@@ -161,5 +161,6 @@ class KeyboardLayoutPage(Adw.Bin):
                 self.app.selected_layout = self.selected_layout
             print(f"[Pelican Installer] Proceeding with layout: {self.selected_layout}")
             self.app.go_to("disk_managent")
+            #self.app.go_to("user")
         else:
             print("[Pelican Installer] Please select a keyboard layout first.")

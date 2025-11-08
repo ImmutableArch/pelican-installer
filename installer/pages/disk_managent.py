@@ -22,12 +22,11 @@ class DiskManagent(Adw.Bin):
         self.partition_rows = []
         self.selected_row = None
         self.partition_config = {}
+        # Btrfs subvolumes configuration
         self.btrfs_subvolumes = {
-            '@': '/',
-            '@home': '/home',
-            '@var': '/var',
-            '@tmp': '/tmp',
-            '@snapshots': '/.snapshots'
+            'root': '/',
+            'home': '/home',
+            'var': '/var'
         }
         self.init_partition_config()
         self.set_child(self._build_ui())
@@ -188,14 +187,14 @@ class DiskManagent(Adw.Bin):
                       f"• Create 512 MiB FAT32 EFI System Partition at /boot/efi\n"
                       f"• Create 1 GiB ext4 boot partition at /boot\n"
                       f"• Create Btrfs root partition at / with remaining space\n"
-                      f"  (with subvolumes: @, @home, @var, @tmp, @snapshots)\n\n"
+                      f"  (with subvolumes: root, home, var)\n\n"
                       f"WARNING: All data on {self.selected_disk} will be lost!")
         else:
             message = (f"This will automatically configure {self.selected_disk} for Legacy boot:\n\n"
                       f"• Create MBR partition table\n"
                       f"• Create 1 GiB ext4 boot partition at /boot (bootable)\n"
                       f"• Create Btrfs root partition at / with remaining space\n"
-                      f"  (with subvolumes: @, @home, @var, @tmp, @snapshots)\n\n"
+                      f"  (with subvolumes: root, home, var)\n\n"
                       f"WARNING: All data on {self.selected_disk} will be lost!")
 
         dialog = Adw.MessageDialog(
@@ -644,7 +643,7 @@ class DiskManagent(Adw.Bin):
             if process.returncode != 0:
                 raise Exception(f"Formatting failed: {process.stderr}")
 
-            # Create Btrfs subvolumes if formatting as root
+            # Create Btrfs subvolumes if formatting root as btrfs
             if filesystem == 'btrfs' and device in self.partition_config:
                 if self.partition_config[device].get('mountpoint') == '/':
                     self._create_btrfs_subvolumes(device)
@@ -659,7 +658,7 @@ class DiskManagent(Adw.Bin):
             self._show_error_dialog("Error", f"Failed to format partition: {str(e)}")
 
     def _create_btrfs_subvolumes(self, device):
-        """Create Btrfs subvolumes"""
+        """Create Btrfs subvolumes: root, home, var"""
         try:
             with tempfile.TemporaryDirectory() as tmpdir:
                 # Mount
@@ -667,17 +666,17 @@ class DiskManagent(Adw.Bin):
                 subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=True)
 
                 try:
-                    # Create subvolumes
-                    for subvol in ['@', '@home', '@var', '@tmp', '@snapshots']:
+                    # Create subvolumes: root, home, var
+                    for subvol in ['root', 'home', 'var']:
                         cmd = ['sudo', 'btrfs', 'subvolume', 'create', f"{tmpdir}/{subvol}"]
                         subprocess.run(cmd, capture_output=True, text=True, timeout=30)
 
-                    # Set default subvolume to @
+                    # Set default subvolume to root
                     cmd = ['sudo', 'btrfs', 'subvolume', 'list', tmpdir]
                     process = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
                     if process.returncode == 0:
                         for line in process.stdout.split('\n'):
-                            if ' path @' in line and line.endswith(' path @'):
+                            if ' path root' in line and line.endswith(' path root'):
                                 subvol_id = line.split()[1]
                                 cmd = ['sudo', 'btrfs', 'subvolume', 'set-default', subvol_id, tmpdir]
                                 subprocess.run(cmd, capture_output=True, text=True, timeout=30)
@@ -689,6 +688,100 @@ class DiskManagent(Adw.Bin):
 
         except Exception as e:
             print(f"Warning: Failed to create Btrfs subvolumes: {e}")
+
+    def _generate_and_apply_fstab(self):
+        """Generate fstab file with Btrfs subvolumes"""
+        try:
+            fstab_content = [
+                "# /etc/fstab: static file system information.",
+                "#",
+                "# <file system>             <mount point>  <type>  <options>         <dump>  <pass>",
+                "# Created by Pelican Installer",
+                ""
+            ]
+
+            if not self.partition_config:
+                fstab_content.append("# No partition configuration found")
+            else:
+                btrfs_root_device = None
+                btrfs_root_uuid = None
+
+                # Find Btrfs root device
+                for device, config in self.partition_config.items():
+                    if config.get('mountpoint') == '/' and config.get('fstype') == 'btrfs':
+                        btrfs_root_device = device
+                        btrfs_root_uuid = self._get_device_uuid(device)
+                        break
+
+                # Generate entries for non-Btrfs partitions first
+                for device, config in self.partition_config.items():
+                    mountpoint = config.get('mountpoint')
+                    if not mountpoint:
+                        continue
+
+                    filesystem = config.get('fstype', self._get_filesystem_type(device))
+                    if not filesystem:
+                        filesystem = 'auto'
+
+                    # Skip Btrfs root - we'll handle it with subvolumes
+                    if device == btrfs_root_device:
+                        continue
+
+                    uuid = self._get_device_uuid(device)
+                    device_id = f"UUID={uuid}" if uuid else device
+
+                    # Set options based on filesystem and mountpoint
+                    if filesystem == "swap":
+                        options = "defaults"
+                        dump = "0"
+                        pass_num = "0"
+                    elif mountpoint == "/boot/efi":
+                        options = "umask=0077,shortname=winnt"
+                        dump = "0"
+                        pass_num = "2"
+                    elif mountpoint == "/boot":
+                        options = "defaults"
+                        dump = "1"
+                        pass_num = "2"
+                    else:
+                        options = "defaults"
+                        dump = "0"
+                        pass_num = "2"
+
+                    fstab_line = f"{device_id:<25} {mountpoint:<25} {filesystem:<7} {options:<30} {dump} {pass_num}"
+                    fstab_content.append(fstab_line)
+
+                # Now add Btrfs subvolumes entries
+                if btrfs_root_device and btrfs_root_uuid:
+                    device_id = f"UUID={btrfs_root_uuid}"
+
+                    for subvol, mount in self.btrfs_subvolumes.items():
+                        if mount == '/':
+                            options = f"subvol={subvol},compress=zstd:1,ro"
+                            dump = "0"
+                            pass_num = "0"
+                        else:
+                            options = f"subvol={subvol},compress=zstd:1"
+                            dump = "0"
+                            pass_num = "0"
+
+                        fstab_line = f"{device_id:<25} {mount:<25} btrfs   {options:<30} {dump} {pass_num}"
+                        fstab_content.append(fstab_line)
+
+            # Save fstab
+            etc_dir = "/tmp/installer_config/etc"
+            os.makedirs(etc_dir, exist_ok=True)
+
+            fstab_path = os.path.join(etc_dir, "fstab")
+            with open(fstab_path, 'w') as f:
+                f.write('\n'.join(fstab_content))
+
+            print(f"Generated fstab saved to: {fstab_path}")
+
+        except Exception as e:
+            print(f"Error generating fstab: {e}")
+            import traceback
+            traceback.print_exc()
 
     def _show_partition_dialog(self, row=None, is_new=False):
         """Show partition creation/edit dialog"""
@@ -1009,6 +1102,18 @@ class DiskManagent(Adw.Bin):
         except Exception:
             self.partition_config = {}
 
+    def _load_partition_config_with_return(self):
+        try:
+            config_path = "/tmp/installer_config/.disk_utility_config.json"
+
+            if os.path.exists(config_path):
+                with open(config_path, 'r') as f:
+                    return json.load(f)
+            else:
+                return None
+        except Exception:
+            return None
+
     def _save_partition_config(self):
         """Save partition configuration to file"""
         try:
@@ -1029,7 +1134,6 @@ class DiskManagent(Adw.Bin):
                 "# /etc/fstab: static file system information.",
                 "#",
                 "# <file system>             <mount point>  <type>  <options>         <dump>  <pass>",
-                "# Generated by Pelican Installer",
                 ""
             ]
 
@@ -1103,6 +1207,8 @@ class DiskManagent(Adw.Bin):
 
         except Exception as e:
             print(f"Error generating fstab: {e}")
+            import traceback
+            traceback.print_exc()
 
     def _get_filesystem_type(self, device):
         """Get filesystem type of a device"""
@@ -1237,4 +1343,4 @@ class DiskManagent(Adw.Bin):
             return
 
         if hasattr(self.app, "go_to"):
-            self.app.go_to("install-summary")
+            self.app.go_to("user")

@@ -11,9 +11,9 @@ from installer.pages.language_select import LanguageSelectPage
 from installer.pages.welcome import WelcomePage
 from installer.pages.timezone_select import TimezoneSelectPage
 from installer.pages.keyborard_select import KeyboardLayoutPage
-from installer.pages.disk_utility import DiskUtilityPage
-from installer.pages.automatic_part import AutoPartitionPage
 from installer.pages.disk_managent import DiskManagent
+from installer.pages.user_creation import UserAccountPage
+from installer.pages.installation_page import InstallationPage
 
 Adw.init()
 
@@ -79,12 +79,17 @@ class PelicanInstallerApp(Adw.Application):
         self.timezone_page = TimezoneSelectPage(self)
         self.keyboard_page = KeyboardLayoutPage(self)
         self.managent_part_page = DiskManagent(self)
+        self.user_creation_page = UserAccountPage(self)
+        self.installation_page = InstallationPage(self)
 
         self.stack.add_named(self.welcome_page, "welcome")
         self.stack.add_named(self.language_page, "language")
         self.stack.add_named(self.timezone_page, "timezone")
         self.stack.add_named(self.keyboard_page, "keyboard")
+        #self.stack.add_named(self.user_creation_page, "user")
         self.stack.add_named(self.managent_part_page, "disk_managent")
+        self.stack.add_named(self.user_creation_page, "user")
+        self.stack.add_named(self.installation_page, "install")
 
         self.stack.set_visible_child_name("welcome")
         self.window.present()
@@ -98,6 +103,12 @@ class PelicanInstallerApp(Adw.Application):
         print("[Pelican Installer] Closing gracefully...")
         self.quit()
         return False  # False = pozwól GTK zamknąć okno
+
+    # Kiedy użytkownik kliknie "Begin installation"
+    def on_begin_installation(self):
+        self.go_to("install")
+        self.installation_page.start_installation()
+
 
 
 def main():
