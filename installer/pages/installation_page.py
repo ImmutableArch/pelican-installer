@@ -237,8 +237,8 @@ class InstallationPage(Adw.Bin):
 
             # Budujemy komendę pacman-ostree
             cmd = [
-                "pacman-ostree",
-                "ostree", "container", "image", "deploy",
+                "ostree",
+                "container", "image", "deploy",
                 "--sysroot", target_root,
                 "--stateroot", stateroot,
                 "--image", image_ref,
